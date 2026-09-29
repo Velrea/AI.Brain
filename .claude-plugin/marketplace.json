@@ -1,0 +1,13 @@
+{
+  "name": "ai-brain",
+  "owner": {
+    "name": "Velrea"
+  },
+  "description": "The Brain: a personal knowledge base run by Claude.",
+  "plugins": [
+    {
+      "name": "brain",
+      "source": "./plugin"
+    }
+  ]
+}

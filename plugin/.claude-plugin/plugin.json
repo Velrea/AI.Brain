@@ -1,0 +1,8 @@
+{
+  "name": "brain",
+  "description": "A personal knowledge base: records what happens in the user's life and answers questions about it.",
+  "author": {
+    "name": "Velrea"
+  },
+  "license": "Elastic-2.0"
+}

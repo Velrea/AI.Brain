@@ -1,8 +1,11 @@
+# Claude Code per-machine state
 .claude/worktrees/
 .claude/settings.local.json
 
-.venv/
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
