@@ -1,6 +1,6 @@
 # Entities and definitions
 
-Concerns [the data format](../data-format.md).
+Concerns the data format.
 
 - **An `entity` type** extends `journal-entry` with `slug`, `kind`, and `aliases`: the durable things entries are about, which `entities` names by slug.
 - **A `resolve` tool** turns a name into a few candidate entities.

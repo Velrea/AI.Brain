@@ -1,6 +1,6 @@
 # Search and embeddings
 
-Concerns [reading](../read-and-write.md).
+Concerns reading.
 
 Full-text and meaning-based search over the Brain.
 

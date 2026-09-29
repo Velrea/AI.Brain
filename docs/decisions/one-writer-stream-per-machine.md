@@ -9,5 +9,3 @@ All machines appending to one shared file.
 ## Why
 
 The Brain's folders are kept in step by a sync service such as Google Drive or Dropbox. Two machines appending to one file would leave the sync service holding conflicting copies. With one stream per machine, only its own machine ever changes a stream, so each machine uploads its own stream and downloads the others', which it never writes.
-
-Shaped [`read-and-write.md`](../read-and-write.md) and [`data-format.md`](../data-format.md).

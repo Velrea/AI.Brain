@@ -14,13 +14,17 @@ claude plugin marketplace add Velrea/AI.Brain
 claude plugin install brain@ai-brain
 ```
 
+## What it does
+
+- **Capture.** You tell Claude what happened, in as much detail as you have. Claude asks follow-up questions to fill in what is missing, then records it, and records a life event unprompted when one surfaces in conversation.
+- **Accurate retrieval.** What happened, how things stand now, what changed, fast enough to feel conversational.
+- **Corrections.** A mistake or a later update can be recorded, and every later answer reflects it.
+- **Documents.** Original files are kept, linked to what they are about, and retrievable.
+
 ## Documents
 
-- [The Brain](docs/brain.md): what the Brain is and does.
-- [Reading and writing](docs/read-and-write.md): how the record is read and written.
-- [Data format](docs/data-format.md): the on-disk layout and the record.
-- [The plugin](docs/plugin.md): the MCP server, its configuration, tools, and skills.
-- [Work](docs/work/): what is committed to next.
+- [Work](docs/work/): what is being built, and the choices already settled for it.
+- [Decisions](docs/decisions/): the major choices that still bind, and what was set aside.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
 
 ## License

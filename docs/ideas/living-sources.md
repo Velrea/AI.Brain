@@ -1,6 +1,6 @@
 # Living sources
 
-Concerns [references](../data-format.md).
+Concerns file references.
 
 A reference to something that keeps changing, such as a web page or a shared online document, as opposed to a frozen file.
 

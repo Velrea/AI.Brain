@@ -9,5 +9,3 @@ A time as the watermark: a snapshot covers every record recorded before the mome
 ## Why
 
 A time misses records that arrive late. An entry one machine records offline at 10:00 and a sync delivers at 10:30 would sort before a snapshot computed elsewhere at 10:15, and be skipped forever. A per-writer `seq` catches it, because the entry still sits past the snapshot's mark in its own stream.
-
-Shaped [`data-format.md`](../data-format.md#snapshots).
