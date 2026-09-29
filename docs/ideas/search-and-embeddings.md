@@ -1,6 +1,6 @@
 # Search and embeddings
 
-Concerns [reading](../architecture/read-and-write.md).
+Concerns [reading](../read-and-write.md).
 
 Full-text and meaning-based search over the Brain.
 

@@ -6,7 +6,7 @@ branch:
 
 # The journal and query skills
 
-The `journal` and `query` skills, as [`plugin.md`](../architecture/plugin.md) describes.
+The `journal` and `query` skills, as [`plugin.md`](../plugin.md) describes.
 
 ## Acceptance criteria
 

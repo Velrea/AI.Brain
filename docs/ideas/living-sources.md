@@ -1,6 +1,6 @@
 # Living sources
 
-Concerns [references](../architecture/data-format.md).
+Concerns [references](../data-format.md).
 
 A reference to something that keeps changing, such as a web page or a shared online document, as opposed to a frozen file.
 

@@ -16,8 +16,10 @@ claude plugin install brain@ai-brain
 
 ## Documents
 
-- [Design](docs/design/): what the Brain is and does.
-- [Architecture](docs/architecture/): how it is built, including the data format.
+- [The Brain](docs/brain.md): what the Brain is and does.
+- [Reading and writing](docs/read-and-write.md): how the record is read and written.
+- [Data format](docs/data-format.md): the on-disk layout and the record.
+- [The plugin](docs/plugin.md): the MCP server, its configuration, tools, and skills.
 - [Work](docs/work/): what is committed to next.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
 

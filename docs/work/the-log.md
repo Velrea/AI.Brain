@@ -6,7 +6,7 @@ branch:
 
 # The log
 
-The write path: writer id, file lock, append, roll, `seq`, and torn-line handling, as [`data-format.md`](../architecture/data-format.md) and [`read-and-write.md`](../architecture/read-and-write.md) describe.
+The write path: writer id, file lock, append, roll, `seq`, and torn-line handling, as [`data-format.md`](../data-format.md) and [`read-and-write.md`](../read-and-write.md) describe.
 
 ## Acceptance criteria
 
