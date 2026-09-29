@@ -1,10 +1,6 @@
----
-covers: [plugin/**]
----
-
 # The plugin
 
-The Brain is an MCP server. The plugin carries the server, a launcher, and skills.
+The plugin carries an MCP server, a launcher, and skills. The server reads and writes the Brain as [`read-and-write.md`](read-and-write.md) describes, in the format [`data-format.md`](data-format.md) sets out.
 
 - **The server runs over stdio.** The agent's host starts it for a session and stops it with the session.
 - **A launcher prepares the machine on first run.** It builds a virtual environment, installs the pinned `mcp` and `duckdb` packages into it, and starts the server. Python is the machine's own.

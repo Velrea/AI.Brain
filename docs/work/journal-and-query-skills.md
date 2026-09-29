@@ -1,9 +1,3 @@
----
-status: ready
-claimed-by:
-branch:
----
-
 # The journal and query skills
 
 The `journal` and `query` skills, as [`plugin.md`](../plugin.md) describes.

@@ -1,9 +1,3 @@
----
-status: ready
-claimed-by:
-branch:
----
-
 # Types
 
 The `journal-entry` and `snapshot` definitions, and validation against them.

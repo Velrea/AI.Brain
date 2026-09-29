@@ -1,7 +1,3 @@
----
-covers: [plugin/**]
----
-
 # The Brain
 
 A personal knowledge base run by Claude: a permanent record of what happens in the user's life, their health, money, home, vehicles, work, and the people around them, plus the source documents behind it. The user tells Claude what happened, Claude asks follow-up questions and records it, and later Claude answers questions about the user's life by reading the record back.

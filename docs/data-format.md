@@ -1,7 +1,3 @@
----
-covers: [plugin/server/brain/**, plugin/definitions/**]
----
-
 # The Brain data format
 
 A Brain is an append-only log of events, kept as JSON Lines files, beside a folder of the documents those events rest on. It holds events, never current state; how things stand now is worked out by reading the events in order.
@@ -16,6 +12,7 @@ A Brain is an append-only log of events, kept as JSON Lines files, beside a fold
       000001.jsonl           sealed, never changes again
       000002.jsonl           open, the only file this writer appends to
     laptop-c91e02/
+      writer.json
       000001.jsonl
 
 <documents store>/           filed documents, at the paths file references name
@@ -28,7 +25,7 @@ A Brain is an append-only log of events, kept as JSON Lines files, beside a fold
 
 ## Records
 
-Every line is one flat JSON object in UTF-8, ended by a newline: reserved envelope keys beside the type's properties, with no nested payload.
+Every line is one JSON object in UTF-8, ended by a newline: reserved envelope keys beside the type's properties at the top level, with no wrapping payload object.
 
 ```json
 {"id":"0199a8c4-…","type":"journal-entry","v":1,"writer":"desktop-7f3a9c","seq":4127,
@@ -97,4 +94,4 @@ A snapshot records a folded answer so it need not be recomputed. It carries `sco
 "read_upto":{"desktop-7f3a9c":4127,"laptop-c91e02":88}
 ```
 
-A snapshot is stale when any stream holds a record past its mark, or a stream it does not name holds any record, and those records are what a reader replays on top of it. **A time is never the watermark:** an entry one machine records offline at 10:00 and a sync delivers at 10:30 would sort before a snapshot computed elsewhere at 10:15 and be skipped forever.
+A snapshot is stale when any stream holds a record past its mark, or a stream it does not name holds any record, and those records are what a reader replays on top of it. A time is never the watermark; [the decision](decisions/sequence-watermark-for-snapshots.md) says why.

@@ -1,9 +1,3 @@
----
-status: ready
-claimed-by:
-branch:
----
-
 # The tools and the launcher
 
 The four tools and the launcher, as [`plugin.md`](../plugin.md) describes, and the plugin working in a real session.

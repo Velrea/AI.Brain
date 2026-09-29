@@ -1,12 +1,6 @@
----
-status: ready
-claimed-by:
-branch:
----
-
 # The query side
 
-DuckDB views over the files, `search`, `read`, and snapshot staleness, as [`read-and-write.md`](../read-and-write.md) describes.
+DuckDB views over the files, `search`, `read`, and snapshot staleness, as [`read-and-write.md`](../read-and-write.md) and the snapshots section of [`data-format.md`](../data-format.md#snapshots) describe.
 
 ## Acceptance criteria
 

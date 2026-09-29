@@ -1,9 +1,3 @@
----
-status: ready
-claimed-by:
-branch:
----
-
 # The log
 
 The write path: writer id, file lock, append, roll, `seq`, and torn-line handling, as [`data-format.md`](../data-format.md) and [`read-and-write.md`](../read-and-write.md) describe.
