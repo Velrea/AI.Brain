@@ -23,8 +23,27 @@ claude plugin install brain@ai-brain
 
 ## Documents
 
+- [The core module](docs/core-module.md): the Python package that holds the file format and writes the records.
 - [Work](docs/work/): what is being built, and the choices already settled for it.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
+
+## Development
+
+The tests need Python 3.11 or later and pytest. From the repository root:
+
+```bash
+python -m venv .venv
+```
+
+```bash
+.venv/Scripts/python -m pip install pytest
+```
+
+```bash
+.venv/Scripts/python -m pytest
+```
+
+On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request runs the same tests on Windows, Linux, and macOS, and cannot merge until they pass.
 
 ## License
 
