@@ -1,6 +1,8 @@
 # The journal and query skills
 
-Capture and retrieval take judgment the tools cannot hold: what deserves an entry, what to ask first, how the body reads, which entity a name means, and how entries fold into an answer. The skills keep only that judgment; nothing mechanical stays in a skill.
+Capture and retrieval take judgment the tools cannot hold: what deserves an entry, what to ask first, how the body reads, and how entries fold into an answer. The skills keep only that judgment; nothing mechanical stays in a skill.
+
+The skills carry the long guidance, more than a tool's description should hold; [the MCP server](mcp-server-and-launcher.md) carries the rules, and the skills call its tools.
 
 ## Settled
 
