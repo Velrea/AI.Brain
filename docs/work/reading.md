@@ -2,7 +2,7 @@
 
 The read path: what happened, how things stand now, and what changed, fast enough to feel conversational.
 
-It extends [the core module](core-module.md) with a reading module beside the write path, and adds `search` and `read` to [the MCP server](mcp-server-and-launcher.md).
+It extends [the core module](../core-module.md) with a reading module beside the write path, and adds `search` and `read` to [the MCP server](mcp-server-and-launcher.md).
 
 ## Settled
 

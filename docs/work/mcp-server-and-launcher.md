@@ -1,6 +1,6 @@
 # The MCP server and the launcher
 
-The MCP server is how an agent reaches the Brain. It imports [the core module](core-module.md) and wraps it: a separate thing beside the module, holding no logic about the data of its own. It carries the rules itself, so an agent without the skills gets the same behavior.
+The MCP server is how an agent reaches the Brain. It imports [the core module](../core-module.md) and wraps it: a separate thing beside the module, holding no logic about the data of its own. It carries the rules itself, so an agent without the skills gets the same behavior.
 
 It comes right after the core module, with `write_journal` and `store_document` first; `search` and `read` arrive with [reading](reading.md).
 
