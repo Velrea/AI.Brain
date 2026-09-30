@@ -12,6 +12,7 @@ PLUGIN = Path(__file__).resolve().parent.parent / "plugin"
 
 
 def entry(**overrides) -> dict:
+    """Arguments for Writer.write_entry."""
     fields = {
         "type": "journal",
         "version": 1,

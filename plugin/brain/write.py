@@ -13,7 +13,15 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .format import check, encode, events_dir, file_created_at, is_event_file, new_file_name, uuid7
+from .format import (
+    check_entry,
+    encode,
+    events_dir,
+    file_created_at,
+    is_event_file,
+    new_file_name,
+    uuid7,
+)
 from .lock import FileLock
 
 ROLL_LINES = 10_000
@@ -60,18 +68,39 @@ class Writer:
         self._state_path = Path(state_dir) / f"{key}.json"
         self._lock = FileLock(Path(state_dir) / f"{key}.lock", lock_timeout)
 
-    def append(self, fields: dict) -> str:
-        """Records an entry and returns its id.
+    def write_entry(
+        self,
+        *,
+        type: str,
+        version: int,
+        event_date: str,
+        description: str,
+        body: str,
+        source: str | None = None,
+        details: dict | None = None,
+    ) -> str:
+        """Records an entry of any type and returns its id.
 
-        `fields` carries every field but `id` and `recorded_at`, which are
-        stamped here. Raises RecordError for a record of the wrong shape,
+        Callers write through a type's own method in `entries`, which fixes
+        the type, its version, and its details. `id` and `recorded_at` are
+        stamped here. Raises RecordError for a blank or invalid field,
         LockTimeout when another session holds the lock too long, and
         AppendBlocked when the file stays blocked past the retries.
         """
-        fields = check(fields)
+        details = {} if details is None else details
+        check_entry(
+            type=type, version=version, event_date=event_date, description=description,
+            body=body, source=source, details=details,
+        )
+        record = {
+            "type": type, "version": version, "event_date": event_date,
+            "description": description, "body": body, "details": details,
+        }
+        if source is not None:
+            record["source"] = source
         with self._lock:
             now = self.clock()
-            record = {"id": str(uuid7(now)), "recorded_at": _utc_text(now)} | fields
+            record |= {"id": str(uuid7(now)), "recorded_at": _utc_text(now)}
             line = encode(record)
             self._retrying(lambda: self._append_line(line, now))
         return record["id"]
@@ -144,10 +173,16 @@ class Writer:
 
 
 def _append(path: Path, data: bytes) -> None:
-    with open(path, "ab") as file:
-        file.write(data)
-        file.flush()
-        os.fsync(file.fileno())
+    """Appends `data` in one unbuffered write, and returns once it is on disk."""
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, flags, 0o644)
+    try:
+        view = memoryview(data)
+        while view:  # One write in practice; the loop only guards a short write.
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _utc_text(at: dt.datetime) -> str:

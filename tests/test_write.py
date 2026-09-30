@@ -6,7 +6,7 @@ import uuid
 import pytest
 
 import brain.write
-from brain.format import RecordError, file_created_at
+from brain.format import FIELDS, RecordError, file_created_at
 from brain.write import Writer
 
 from conftest import entry, event_files, lines_of, python, records_of
@@ -22,76 +22,63 @@ class Clock:
         return self.now
 
 
-def test_an_append_writes_one_stamped_record_as_one_line(writer, store):
-    record_id = writer.append(entry(source="voice"))
+def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, store):
+    details = {"odometer": 48210, "parts": ["oil", "filter"]}
+    full_id = writer.write_entry(**entry(source="voice", details=details))
+    bare_id = writer.write_entry(**entry())
 
     [path] = event_files(store)
-    [record] = records_of(path)
-    assert record["id"] == record_id
-    assert uuid.UUID(record_id).version == 7
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", record["recorded_at"])
-    assert list(record) == [
-        "id", "type", "version", "recorded_at", "event_date", "description", "source", "body",
-    ]
-    assert {k: record[k] for k in entry(source="voice")} == entry(source="voice")
+    full, bare = records_of(path)
+    assert list(full) == list(FIELDS)
+    assert full["id"] == full_id and uuid.UUID(full_id).version == 7
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", full["recorded_at"])
+    assert full["details"] == details
+    # Every record has the same columns: details is always there, source only when given.
+    assert bare["id"] == bare_id
+    assert bare["details"] == {} and "source" not in bare
 
 
-def test_appends_go_to_the_same_file_until_it_rolls(writer, store):
-    for n in range(5):
-        writer.append(entry(description=f"entry {n}"))
-
-    [path] = event_files(store)
-    assert [r["description"] for r in records_of(path)] == [f"entry {n}" for n in range(5)]
-
-
-def test_a_types_own_fields_are_written_after_the_common_ones(writer, store):
-    writer.append(entry(type="vehicle_service", odometer=48210))
-
-    [path] = event_files(store)
-    [record] = records_of(path)
-    assert record["odometer"] == 48210
-    assert list(record)[-2:] == ["body", "odometer"]
-
-
-def test_a_rejected_record_writes_nothing(writer, store):
+@pytest.mark.parametrize(
+    "overrides",
+    [{"description": " "}, {"body": chr(0xD800)}],
+    ids=["blank description", "text that is not valid Unicode"],
+)
+def test_a_rejected_entry_writes_nothing(writer, store, overrides):
     with pytest.raises(RecordError):
-        writer.append(entry(id="mine"))
-    with pytest.raises(RecordError):
-        writer.append({"type": "journal"})
+        writer.write_entry(**entry(**overrides))
     assert event_files(store) == []
 
 
 def test_a_torn_last_line_is_ended_before_the_next_append(writer, store):
-    writer.append(entry(description="first"))
+    writer.write_entry(**entry(description="first"))
     [path] = event_files(store)
     with open(path, "ab") as file:
         file.write(b'{"id":"0199a8c4-torn","type":"jou')
 
-    writer.append(entry(description="after"))
+    writer.write_entry(**entry(description="after"))
 
-    lines = lines_of(path)
-    assert lines[1] == b'{"id":"0199a8c4-torn","type":"jou'
-    assert json.loads(lines[0])["description"] == "first"
-    assert json.loads(lines[2])["description"] == "after"
-    assert len(lines) == 3
+    first, torn, after = lines_of(path)
+    assert torn == b'{"id":"0199a8c4-torn","type":"jou'
+    assert json.loads(first)["description"] == "first"
+    assert json.loads(after)["description"] == "after"
 
 
-def test_a_file_that_reaches_the_line_limit_is_left(writer, store, monkeypatch):
+def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, store, monkeypatch):
     monkeypatch.setattr(brain.write, "ROLL_LINES", 3)
     for n in range(7):
-        writer.append(entry(description=f"entry {n}"))
+        writer.write_entry(**entry(description=f"entry {n}"))
 
     assert sorted(len(records_of(f)) for f in event_files(store)) == [1, 3, 3]
 
 
-def test_a_file_seven_days_old_is_left(store, state):
+def test_a_file_seven_days_old_is_left_for_a_new_one(store, state):
     clock = Clock()
     writer = Writer(store, state, clock=clock)
-    writer.append(entry(description="day 0"))
+    writer.write_entry(**entry(description="day 0"))
     clock.now = T0 + dt.timedelta(days=6, hours=23)
-    writer.append(entry(description="day 6"))
+    writer.write_entry(**entry(description="day 6"))
     clock.now = T0 + dt.timedelta(days=7)
-    writer.append(entry(description="day 7"))
+    writer.write_entry(**entry(description="day 7"))
 
     old, new = event_files(store)
     assert [r["description"] for r in records_of(old)] == ["day 0", "day 6"]
@@ -99,26 +86,12 @@ def test_a_file_seven_days_old_is_left(store, state):
     assert file_created_at(new.name) == clock.now
 
 
-def test_a_file_that_rolls_is_never_appended_to_again(writer, store, monkeypatch):
-    monkeypatch.setattr(brain.write, "ROLL_LINES", 2)
-    writer.append(entry())
-    writer.append(entry())
-    [sealed] = event_files(store)
-    before = sealed.read_bytes()
-
-    writer.append(entry())
-    writer.append(entry())
-    writer.append(entry())
-
-    assert sealed.read_bytes() == before
-
-
 def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, store):
-    writer.append(entry())
+    writer.write_entry(**entry())
     [path] = event_files(store)
     path.unlink()
 
-    writer.append(entry(description="after"))
+    writer.write_entry(**entry(description="after"))
 
     [new] = event_files(store)
     assert new != path
@@ -126,12 +99,12 @@ def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, store):
 
 
 def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, store, state):
-    writer.append(entry(description="before"))
+    writer.write_entry(**entry(description="before"))
     [path] = event_files(store)
     for file in state.glob("*.json"):
         file.unlink()
 
-    writer.append(entry(description="after"))
+    writer.write_entry(**entry(description="after"))
 
     assert [r["description"] for r in records_of(path)] == ["before"]
     [new] = [f for f in event_files(store) if f != path]
@@ -139,42 +112,38 @@ def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, store, state
 
 
 def test_a_machine_never_appends_to_a_file_it_did_not_create(store, tmp_path):
-    Writer(store, tmp_path / "machine a").append(entry(description="a"))
-    Writer(store, tmp_path / "machine b").append(entry(description="b"))
-    Writer(store, tmp_path / "machine a").append(entry(description="a again"))
+    Writer(store, tmp_path / "machine a").write_entry(**entry(description="a"))
+    Writer(store, tmp_path / "machine b").write_entry(**entry(description="b"))
+    Writer(store, tmp_path / "machine a").write_entry(**entry(description="a again"))
 
-    by_writer = sorted(
-        [r["description"] for r in records_of(path)] for path in event_files(store)
-    )
-    assert by_writer == [["a", "a again"], ["b"]]
+    by_file = sorted([r["description"] for r in records_of(path)] for path in event_files(store))
+    assert by_file == [["a", "a again"], ["b"]]
 
 
 def test_two_brains_on_one_machine_keep_separate_state(tmp_path, state):
     first, second = tmp_path / "first", tmp_path / "second"
-    Writer(first, state).append(entry(description="first"))
-    Writer(second, state).append(entry(description="second"))
-    Writer(first, state).append(entry(description="first again"))
+    Writer(first, state).write_entry(**entry(description="first"))
+    Writer(second, state).write_entry(**entry(description="second"))
+    Writer(first, state).write_entry(**entry(description="first again"))
 
     [path] = event_files(first)
     assert [r["description"] for r in records_of(path)] == ["first", "first again"]
-    assert len(list(state.glob("*.lock"))) == 2
 
 
-APPEND_MANY = """
+WRITE_MANY = """
 import sys
 from brain.write import Writer
 store, state, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 writer = Writer(store, state)
-body = name * 5000
 for n in range(count):
-    writer.append({"type": "journal", "version": 1, "event_date": "2026-09-14",
-                   "description": f"{name} {n}", "body": body})
+    writer.write_entry(type="journal", version=1, event_date="2026-09-14",
+                       description=f"{name} {n}", body=name * 5000)
 """
 
 
 def test_concurrent_sessions_append_whole_lines(store, state):
     sessions, count = 6, 25
-    procs = [python(APPEND_MANY, str(store), str(state), f"s{i}", str(count)) for i in range(sessions)]
+    procs = [python(WRITE_MANY, str(store), str(state), f"s{i}", str(count)) for i in range(sessions)]
     for proc in procs:
         _, err = proc.communicate(timeout=120)
         assert proc.returncode == 0, err

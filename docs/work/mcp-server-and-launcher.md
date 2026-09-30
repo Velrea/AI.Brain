@@ -2,7 +2,7 @@
 
 The MCP server is how an agent reaches the Brain. It imports [the core module](core-module.md) and wraps it: a separate thing beside the module, holding no logic about the data of its own. It carries the rules itself, so an agent without the skills gets the same behavior.
 
-It comes right after the core module, with `write` and `store_document` first; `search` and `read` arrive with [reading](reading.md).
+It comes right after the core module, with `write_journal` and `store_document` first; `search` and `read` arrive with [reading](reading.md).
 
 ## Settled
 
@@ -21,7 +21,7 @@ Configuration is two folders, given to the server when it starts:
 
 | Tool | Does |
 | --- | --- |
-| `write` | records an entry and returns its id |
+| `write_journal` | records a journal entry and returns its id; each supported type gets a tool of its own |
 | `search` | finds entries by text, event date, and type, returning each hit's id, event date, description, and a snippet, paged |
 | `read` | returns full entries, as markdown, for a list of ids in one call |
 | `store_document` | files a document into the documents store and returns its path and hash |
@@ -34,7 +34,7 @@ Configuration is two folders, given to the server when it starts:
 - On first run the launcher builds a virtual environment, installs the pinned `mcp` and `duckdb`, and starts the server.
 - The server starts with the event store and documents store folders it is given.
 - The server takes its state folder in the order above, skipping an unexpanded `${...}`, and logs which it chose.
-- In a real agent session, `write` and `store_document` are callable and do what the table says.
+- In a real agent session, `write_journal` and `store_document` are callable and do what the table says.
 
 ## Open question
 

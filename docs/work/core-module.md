@@ -52,16 +52,16 @@ flowchart LR
 - **A session that cannot take the lock waits**, and gives up with an error after about 30 seconds. The lock is held for milliseconds, so a longer wait means something has hung.
 - **The holder leaves the store ready for the next writer**, rolling a file that is due before it releases the lock. A writer that takes the lock still checks what it finds, because a holder that crashed left no promises: it ends a torn last line and rolls a file that is due.
 - **An append blocked by the sync service retries with backoff, under the lock.** A local outbox is held in reserve in case retries prove not enough: records wait in a file outside the synced folders, and the next writer to take the lock appends them first, in order. The sync service's behaviour is not tested. The Brain relies on it and does not coordinate machines, so minor loss at the sync boundary is accepted.
-- **Each record is one line of JSON** in UTF-8, ended by a newline, with its fields at the top level and no wrapping payload object.
+- **Each record is one line of JSON** in UTF-8, ended by a newline: an envelope every record shares, with what its type adds in one `details` object. The envelope is the same for every type, so the read side's columns are fixed, and nothing a type adds can clash with it.
 
 ```json
 {"id":"0199a8c4-…","type":"journal","version":1,
  "recorded_at":"2026-09-28T23:14:32Z","event_date":"2026-09-14",
  "description":"Oil change","source":"voice",
- "body":"## Service\nOil and filter changed…"}
+ "body":"## Service\nOil and filter changed…","details":{}}
 ```
 
-Every field is required unless marked optional. A type may carry fields of its own beside these, also at the top level; the module checks only that they are JSON.
+Every field is required unless marked optional. A required field that is blank or invalid is rejected.
 
 | Field | Carries |
 | --- | --- |
@@ -73,10 +73,12 @@ Every field is required unless marked optional. A type may carry fields of its o
 | `description` | One-line summary. |
 | `body` | Markdown: the account itself. |
 | `source` | How the information arrived, free text, such as `voice` or `email`. Optional. |
+| `details` | What the type adds, as an object; `{}` when it adds nothing. The module checks only that it is JSON. |
 
+- **Each supported type has its own method**, such as `write_journal`, which takes only that type's fields, fixes its `type` and `version`, packs the rest into `details`, and calls one generic `write_entry`. The generic method stamps `id` and `recorded_at`, so no caller supplies them. The server exposes the type methods, never `write_entry`, so an agent writes only the types the Brain supports. `journal` is the only type so far; a snapshot's fields become its `details` when reading adds it.
 - **A record carries no writer and no position.** Its `id` makes it stand alone wherever it is copied, and a snapshot marks what it has read by lines per file.
 - **A record is never edited.**
-- **An append is one whole line.** A writer that finds its open file ending without a newline, from a crash mid-append, ends that fragment with a newline before appending. It never truncates.
+- **An append is one whole line**, written in one unbuffered write and on disk before the append returns. The newline ends a record: a line that is whole and valid JSON counts, and anything else is a fragment readers skip. A writer that finds its open file ending without a newline, from a crash mid-append, ends that fragment with a newline before appending. It never truncates.
 
 ## Done when
 
@@ -86,6 +88,7 @@ Every field is required unless marked optional. A type may carry fields of its o
 - A machine whose file is gone, or whose local state is missing, starts a new file and never appends to one it did not create.
 - A session that cannot take the lock within the timeout gets an error, and a process that dies holding the lock leaves nothing that blocks the next one.
 - An append blocked by another process holding the file open retries, and succeeds once the file is released.
-- A record missing a required field, or setting one the module stamps, is rejected.
+- A record with a blank or invalid field, or `details` that is not a JSON object, is rejected, and nothing is written.
+- A journal is written through its own method, as a `journal` of version 1 with empty `details`.
 - The tests drive the module directly, with no server.
 - The record's shape and the folders' layout sit in the shared module, where the read side can import them.

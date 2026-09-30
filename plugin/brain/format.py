@@ -17,15 +17,11 @@ _FILE_NAME = re.compile(
     r"^h-(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.jsonl$"
 )
 
-STAMPED = ("id", "recorded_at")
-"""Fields the write path sets. A record handed to it must not carry them."""
-
-REQUIRED = ("type", "version", "event_date", "description", "body")
-"""Fields every record carries, whatever its type. `source` is optional."""
-
-FIELDS = ("id", "type", "version", "recorded_at", "event_date", "description", "source", "body")
-"""The common fields, in the order a record's line holds them. A type may add
-fields of its own, which follow them at the top level."""
+FIELDS = (
+    "id", "type", "version", "recorded_at", "event_date", "description", "source", "body", "details",
+)
+"""The envelope every record carries, in the order its line holds them. `source`
+is the only optional field. What a type adds goes in `details`, never beside it."""
 
 # Valid inside a JSON string, but a reader that splits lines on them would tear the record.
 _LINE_SEPARATORS = {"\u2028": "\\u2028", "\u2029": "\\u2029"}
@@ -69,48 +65,39 @@ def uuid7_time(value: uuid.UUID) -> dt.datetime:
     return dt.datetime.fromtimestamp((value.int >> 80) / 1000, dt.timezone.utc)
 
 
-def check(fields: dict) -> dict:
-    """Checks the fields a caller hands in for a new record, before stamping.
-
-    Raises RecordError for a missing, blank, or invalid common field, or a
-    stamped one. Fields a type adds are checked only for being JSON.
-    """
-    if not isinstance(fields, dict):
-        raise RecordError("a record is an object of fields")
-    stamped = [name for name in STAMPED if name in fields]
-    if stamped:
-        raise RecordError(f"set by the write path, not the caller: {', '.join(stamped)}")
-    missing = [name for name in REQUIRED if name not in fields]
-    if missing:
-        raise RecordError(f"missing required fields: {', '.join(missing)}")
-
-    _text(fields, "type", one_line=True)
-    version = fields["version"]
+def check_entry(
+    *,
+    type: str,
+    version: int,
+    event_date: str,
+    description: str,
+    body: str,
+    source: str | None,
+    details: dict,
+) -> None:
+    """Raises RecordError for a blank or invalid field of the envelope."""
+    _text("type", type, one_line=True)
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RecordError("version must be a whole number from 1")
-    _date(fields["event_date"])
-    _text(fields, "description", one_line=True)
-    _text(fields, "body", one_line=False)
-    if "source" in fields:
-        _text(fields, "source", one_line=True)
-
-    for name, value in fields.items():
+    _date(event_date)
+    _text("description", description, one_line=True)
+    _text("body", body, one_line=False)
+    if source is not None:
+        _text("source", source, one_line=True)
+    if not isinstance(details, dict):
+        raise RecordError("details must be an object of fields")
+    for name, value in details.items():
         if not isinstance(name, str) or not name.strip():
-            raise RecordError(f"a field's name must be non-empty text: {name!r}")
+            raise RecordError(f"a detail's name must be non-empty text: {name!r}")
         try:
             json.dumps(value, allow_nan=False)
         except (TypeError, ValueError) as error:
-            raise RecordError(f"{name} is not a JSON value: {error}") from error
-    return dict(fields)
+            raise RecordError(f"detail {name} is not a JSON value: {error}") from error
 
 
 def encode(record: dict) -> bytes:
-    """One record as one line of UTF-8 JSON, ended by a newline.
-
-    The common fields come first, in their order, then the type's own.
-    """
+    """One record as one line of UTF-8 JSON, ended by a newline."""
     ordered = {name: record[name] for name in FIELDS if name in record}
-    ordered |= {name: value for name, value in record.items() if name not in ordered}
     line = json.dumps(ordered, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     for separator, escaped in _LINE_SEPARATORS.items():
         line = line.replace(separator, escaped)
@@ -120,8 +107,7 @@ def encode(record: dict) -> bytes:
         raise RecordError("a record must be valid Unicode text") from error
 
 
-def _text(fields: dict, name: str, *, one_line: bool) -> None:
-    value = fields[name]
+def _text(name: str, value: object, *, one_line: bool) -> None:
     if not isinstance(value, str) or not value.strip():
         raise RecordError(f"{name} must be non-empty text")
     if one_line and value.splitlines() != [value]:
