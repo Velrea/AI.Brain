@@ -11,6 +11,6 @@ The skills carry the long guidance, more than a tool's description should hold; 
 
 ## Done when
 
-- `journal` asks follow-up questions until the account is complete, matches the layout of the newest similar entry, and writes through `write`.
+- `journal` asks follow-up questions until the account is complete, matches the layout of the newest similar entry, and writes through `write_journal`.
 - `query` searches, reads, and folds entries into an answer, and offers a snapshot when a fold was expensive.
 - Neither skill does anything a tool already enforces.
