@@ -2,9 +2,9 @@
 
 The MCP server is how an agent reaches the Brain. It imports [the core module](../core-module.md) and wraps it: a separate thing beside the module, holding no logic about the data of its own. It carries the rules itself, so an agent without the skills gets the same behavior.
 
-It comes right after the core module, with `write_journal` and `store_document` first; `search` and `read` arrive with [reading](reading.md).
+It wraps both sides of the core module once [reading](reading.md) has added the read side, so every tool calls code the core module's tests already cover.
 
-## Settled
+## Decided
 
 - **The server runs over stdio.** The agent's host starts it for a session and stops it with the session.
 - **A launcher prepares the machine on first run.** It builds a virtual environment, installs the pinned `mcp` and `duckdb` packages into it, and starts the server. Python is the machine's own.
@@ -34,8 +34,14 @@ Configuration is two folders, given to the server when it starts:
 - On first run the launcher builds a virtual environment, installs the pinned `mcp` and `duckdb`, and starts the server.
 - The server starts with the event store and documents store folders it is given.
 - The server takes its state folder in the order above, skipping an unexpanded `${...}`, and logs which it chose.
-- In a real agent session, `write_journal` and `store_document` are callable and do what the table says.
+- In a real agent session, every tool in the table is callable and does what the table says.
 
-## Open question
+## Suggested
 
-How an entry points at a filed document, now that the record carries no references. Filing was to be file first, then the entry that names it, so a pointer never points at nothing.
+- **An entry names a filed document in its `details`**, by its path and `sha256`. The document is filed first, then the entry that names it is written, so a pointer never points at nothing.
+- **Claude Code asks for the two folders when the plugin is enabled**, through `directory` options in the plugin manifest's `userConfig`, and passes them to the server, so no one edits config by hand.
+- **The launcher builds its virtual environment in the plugin's data folder**, beside the state, so it survives plugin updates.
+
+## Depends on
+
+- [Reading](reading.md)

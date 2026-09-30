@@ -2,9 +2,9 @@
 
 The read path: what happened, how things stand now, and what changed, fast enough to feel conversational.
 
-It extends [the core module](../core-module.md) with a reading module beside the write path, and adds `search` and `read` to [the MCP server](mcp-server-and-launcher.md).
+It extends [the core module](../core-module.md) with a reading module beside the write path, tested directly like the write path, with no server. [The MCP server](mcp-server-and-launcher.md) then wraps both sides.
 
-## Settled
+## Decided
 
 - **The reading module depends on the file format alone**, through the record's shape and the folders' layout in the core module's shared module, never on the writer's internals.
 - **DuckDB reads the JSONL files in place**, across every file in `events/`, through views over the files that state their columns. There is no index and no second copy. DuckDB never writes the record. The envelope gives the views fixed columns, and `details` is one JSON column a query reaches into. A tool that lets an agent run a query of its own runs DuckDB with its access to other files and to writing turned off.
@@ -29,4 +29,4 @@ It extends [the core module](../core-module.md) with a reading module beside the
 - `read` returns full entries, as markdown, for a list of ids in a single call.
 - A record that appears in two files is returned once.
 - A snapshot is reported stale when any file holds more lines than its mark or a file it does not name exists, and the query returns the records past the marks.
-- In a real agent session, `search` and `read` are callable through the server.
+- The tests drive the reading module directly, with no server.

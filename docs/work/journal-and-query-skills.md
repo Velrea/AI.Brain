@@ -4,7 +4,7 @@ Capture and retrieval take judgment the tools cannot hold: what deserves an entr
 
 The skills carry the long guidance, more than a tool's description should hold; [the MCP server](mcp-server-and-launcher.md) carries the rules, and the skills call its tools.
 
-## Settled
+## Decided
 
 - `journal`: listen, ask follow-up questions until the account is complete, check the newest similar entry and match its layout, then write. It also records a life event unprompted when one surfaces in conversation.
 - `query`: search, read, and fold entries into an answer, offering a snapshot when a fold was expensive.
@@ -14,3 +14,7 @@ The skills carry the long guidance, more than a tool's description should hold; 
 - `journal` asks follow-up questions until the account is complete, matches the layout of the newest similar entry, and writes through `write_journal`.
 - `query` searches, reads, and folds entries into an answer, and offers a snapshot when a fold was expensive.
 - Neither skill does anything a tool already enforces.
+
+## Depends on
+
+- [The MCP server and the launcher](mcp-server-and-launcher.md)
