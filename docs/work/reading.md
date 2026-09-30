@@ -33,4 +33,4 @@ It extends [the core module](core-module.md) with a reading module beside the wr
 
 ## Not settled
 
-- Where a snapshot's `scope` and `read_upto` live, now that a record's fields are fixed and the body holds everything else.
+- Where a snapshot's `scope` and `read_upto` live: as fields of a snapshot type, now that a type may carry its own, or in the body.
