@@ -24,7 +24,6 @@ claude plugin install brain@ai-brain
 ## Documents
 
 - [Work](docs/work/): what is being built, and the choices already settled for it.
-- [Decisions](docs/decisions/): the major choices that still bind, and what was set aside.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
 
 ## License
