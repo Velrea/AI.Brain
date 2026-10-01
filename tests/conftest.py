@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from brain.entries import Entries
+from brain.read import Reader
 from brain.write import Writer
 
 PLUGIN = Path(__file__).resolve().parent.parent / "plugin"
@@ -62,3 +64,19 @@ def state(tmp_path: Path) -> Path:
 @pytest.fixture
 def writer(store: Path, state: Path) -> Writer:
     return Writer(store, state)
+
+
+@pytest.fixture
+def other_machine(store: Path, tmp_path: Path) -> Writer:
+    """A second machine writing to the same event store, so to a file of its own."""
+    return Writer(store, tmp_path / "other machine state")
+
+
+@pytest.fixture
+def reader(store: Path) -> Reader:
+    return Reader(store)
+
+
+@pytest.fixture
+def entries(writer: Writer) -> Entries:
+    return Entries(writer)

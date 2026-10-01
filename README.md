@@ -23,20 +23,20 @@ claude plugin install brain@ai-brain
 
 ## Documents
 
-- [The core module](docs/core-module.md): the Python package that holds the file format and writes the records.
+- [The core module](docs/core-module.md): the Python package that holds the file format, writes the records, and reads them back.
 - [Work](docs/work/): what is being built, and the choices already settled for it.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
 
 ## Development
 
-The tests need Python 3.11 or later and pytest. From the repository root:
+The tests need Python 3.11 or later, pytest, and the packages the plugin pins in `plugin/requirements.txt`. From the repository root:
 
 ```bash
 python -m venv .venv
 ```
 
 ```bash
-.venv/Scripts/python -m pip install pytest
+.venv/Scripts/python -m pip install pytest -r plugin/requirements.txt
 ```
 
 ```bash

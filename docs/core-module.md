@@ -1,6 +1,6 @@
 # The core module
 
-The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path. Nothing else writes the files: an agent reaches them only through the MCP server, which calls this package. DuckDB, which reads them, cannot append to a JSONL file, and a DuckDB database allows only one process to write. The tests in [`tests/`](../tests/) drive it directly, with no server.
+The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent reaches them only through the MCP server, which calls this package. DuckDB, which reads them, cannot append to a JSONL file, and a DuckDB database allows only one process to write. The tests in [`tests/`](../tests/) drive it directly, with no server.
 
 A Brain is an append-only log of events. It holds events, never current state; how things stand now is worked out by reading the events in order. A record is never edited, and a correction is a new entry.
 
@@ -8,7 +8,8 @@ A Brain is an append-only log of events. It holds events, never current state; h
 | --- | --- |
 | [`format.py`](../plugin/brain/format.py) | The file format: the record's envelope and its checks, the one-line encoding, the folder layout, and file names. The read side imports it; it imports neither side. |
 | [`write.py`](../plugin/brain/write.py) | `Writer.write_entry`, the one generic write. |
-| [`entries.py`](../plugin/brain/entries.py) | One method per supported type, over `write_entry`. |
+| [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id. It imports the file format, never the write path. |
+| [`entries.py`](../plugin/brain/entries.py) | One write method per supported type, over `write_entry`. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
 
 ## Folders
@@ -53,7 +54,7 @@ A record carries no writer and no position: its `id` lets it stand alone whereve
 
 ## Writing
 
-A caller writes through a type's method, such as `Entries.write_journal`, which takes only that type's fields, fixes its `type` and `version`, and calls `Writer.write_entry`. The MCP server exposes the type methods, never `write_entry`. `journal` is the only type so far.
+A caller writes through a type's method, such as `Entries.write_journal`, which takes only that type's fields, fixes its `type` and `version`, and calls `Writer.write_entry`. The MCP server exposes the type methods, never `write_entry`. The types so far are `journal` and [`snapshot`](#snapshots).
 
 ```mermaid
 flowchart LR
@@ -75,3 +76,34 @@ flowchart LR
 - **A blocked file.** An append that another process blocks, such as a sync service holding the file open, retries with backoff for up to 10 seconds under the lock, then raises `AppendBlocked`.
 
 The Brain relies on the sync service to carry files between machines and does not coordinate them, so minor loss at the sync boundary is accepted.
+
+## Reading
+
+Writing is typed and reading is not. A type's write method controls the shape of what is recorded, so a caller never builds a record by hand; reading needs no such control, so `Reader` finds and returns entries of every type the same way, and the caller interprets what comes back by its type. Two calls cover it: `search` finds, `read` returns. They carry the mechanics of the files, so a caller needs only to know what to ask.
+
+Every call reads every file afresh, through DuckDB's JSON reader, where the files lie: there is no index and no second copy, so a machine that has gone quiet can come back and its records are simply there. Each call opens its own in-memory DuckDB and closes it, so no database file is ever written. Reading never writes; a snapshot is written through the write path like any entry.
+
+```mermaid
+flowchart LR
+    files["Every event file"] --> json["DuckDB's JSON reader:<br/>envelope columns"]
+    json --> filter["Drop bad lines,<br/>apply the filters"]
+    filter --> once["Each id once"]
+    once --> search["search: a page<br/>of lean hits"]
+    once --> read["read: full records"]
+```
+
+- **Bad lines.** A line that is not valid JSON, a torn last line among them, or that lacks a field of the envelope is skipped, never reported as an error. A last line that is whole JSON but not yet ended by its newline is read; the writer ends it before its next append.
+- **Each id once.** A line copied into two files is the same record and is returned once. The copies are identical, so any one is kept, and the filters run first so only the matches are checked for copies.
+- **Order is `event_date`**, then `id` to break ties, never `recorded_at` or file position: records from different files interleave only by what they say.
+- **`search`** matches a pattern, a regular expression as grep takes, in any case, against the description and body of every type. It filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, and by exact `details` fields. It returns one page of lean hits, oldest first unless asked for newest first: each hit's id, type, event date, recorded time, description, and a snippet of about 160 characters around the first match in the body, with the total across every page. A caller reads the hits and asks for full text only where it needs it.
+- **`read`** returns the full records for a list of ids in one call, as objects in the envelope's shape with `details` parsed, in event-date order. An id not found is left out.
+
+With 200,000 records in 20 files, a search with a pattern takes about 50 ms and a read about 40 ms.
+
+### Snapshots
+
+A snapshot records a folded answer so it need not be recomputed, such as a list of the dragon's current hoard drawn from years of entries. It is an entry of type `snapshot`, written through `Entries.write_snapshot`, and only at the user's word. Its body holds the answer, its event date is the day it was taken, and its `details` carry `scope`, the question's meaning, put so paraphrases land on one scope.
+
+A snapshot needs no read of its own. A caller finds the latest one for a question with `search`, then searches for what was recorded after it, reaching back a few days past its `recorded_at` for entries that synced late, and folds those in. The reach-back is the caller's to choose.
+
+A record that syncs later than the reach-back is missed, and so is a record the model misread when folding. Both are accepted: a machine with no connection cannot reach the model to record anything, so a long delay is rare, and any store kept in step by a sync service has the same gap. Either is fixed the same way, by building the snapshot afresh from every matching entry and writing a new one.

@@ -1,6 +1,7 @@
 # Claude Code per-machine state
 .claude/worktrees/
 .claude/settings.local.json
+.claude/handoffs/
 
 # Python
 __pycache__/
