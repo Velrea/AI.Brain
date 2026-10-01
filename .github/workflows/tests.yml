@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install pytest
+      - run: python -m pip install pytest -r plugin/requirements.txt
       - run: python -m pytest
 
   # The one check the pull request gate requires, so the matrix can change without touching the gate.

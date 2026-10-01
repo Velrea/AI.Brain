@@ -2,7 +2,7 @@
 
 The MCP server is how an agent reaches the Brain. It imports [the core module](../core-module.md) and wraps it: a separate thing beside the module, holding no logic about the data of its own. It carries the rules itself, so an agent without the skills gets the same behavior.
 
-It wraps both sides of the core module once [reading](reading.md) has added the read side, so every tool calls code the core module's tests already cover.
+It wraps both sides of the core module, [entities](entities.md) included, so every tool calls code the core module's tests already cover.
 
 ## Decided
 
@@ -22,12 +22,14 @@ Configuration is two folders, given to the server when it starts:
 | Tool | Does |
 | --- | --- |
 | `write_journal` | records a journal entry and returns its id; each supported type gets a tool of its own |
-| `search` | finds entries by text, event date, and type, returning each hit's id, event date, description, and a snippet, paged |
-| `read` | returns full entries, as markdown, for a list of ids in one call |
+| `search` | finds entries of every type by pattern, type, event date, recorded time, and `details` fields, returning each hit's id, type, event date, recorded time, description, and a snippet, paged |
+| `read` | returns full records for a list of ids in one call |
+| `resolve` | returns the likely matching entities for each of a list of names |
 | `store_document` | files a document into the documents store and returns its path and hash |
 
 - **Each tool's description carries the rules it enforces.**
 - **A filed document** is a copy of the file, kept in the documents store at its path, with its `sha256`.
+- **A tool that lets an agent run a query of its own runs DuckDB with its access to other files and to writing turned off.**
 
 ## Done when
 
@@ -44,4 +46,4 @@ Configuration is two folders, given to the server when it starts:
 
 ## Depends on
 
-- [Reading](reading.md)
+- [Entities](entities.md)
