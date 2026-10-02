@@ -6,7 +6,6 @@ machine's state folder, outside the synced folders.
 """
 
 import datetime as dt
-import hashlib
 import json
 import os
 import time
@@ -20,6 +19,7 @@ from .format import (
     file_created_at,
     is_event_file,
     new_file_name,
+    state_key,
     uuid7,
 )
 from .lock import FileLock
@@ -63,14 +63,14 @@ class Writer:
         self.events = events_dir(self.event_store)
         self.append_retry = append_retry
         self.clock = clock
-        # Named for the event store's path, so two Brains never share a lock or a current file.
-        key = hashlib.sha256(os.path.normcase(str(self.event_store)).encode()).hexdigest()[:16]
+        key = state_key(self.event_store)
         self._state_path = Path(state_dir) / f"{key}.json"
         self._lock = FileLock(Path(state_dir) / f"{key}.lock", lock_timeout)
 
     def write_entry(
         self,
         *,
+        entry: str | None = None,
         type: str,
         version: int,
         event_date: str,
@@ -83,14 +83,17 @@ class Writer:
 
         Callers write through a type's own method in `entries`, which fixes
         the type, its version, and its details. `id` and `recorded_at` are
-        stamped here. Raises RecordError for a blank or invalid field,
-        LockTimeout when another session holds the lock too long, and
-        AppendBlocked when the file stays blocked past the retries.
+        stamped here, and `entry`, the entry the record belongs to, is its
+        own id unless it is given: a revision names the entry it revises,
+        and its body, an amendment, may be empty. Raises RecordError for a
+        blank or invalid field, LockTimeout when another session holds the
+        lock too long, and AppendBlocked when the file stays blocked past
+        the retries.
         """
         details = {} if details is None else details
         check_entry(
-            type=type, version=version, event_date=event_date, description=description,
-            body=body, source=source, details=details,
+            entry=entry, type=type, version=version, event_date=event_date,
+            description=description, body=body, source=source, details=details,
         )
         record = {
             "type": type, "version": version, "event_date": event_date,
@@ -100,7 +103,8 @@ class Writer:
             record["source"] = source
         with self._lock:
             now = self.clock()
-            record |= {"id": str(uuid7(now)), "recorded_at": _utc_text(now)}
+            id = str(uuid7(now))
+            record |= {"id": id, "entry": entry or id, "recorded_at": _utc_text(now)}
             line = encode(record)
             self._retrying(lambda: self._append_line(line, now))
         return record["id"]

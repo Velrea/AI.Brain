@@ -22,14 +22,15 @@ Configuration is two folders, given to the server when it starts:
 | Tool | Does |
 | --- | --- |
 | `write_journal` | records a journal entry and returns its id; each supported type gets a tool of its own |
-| `search` | finds entries of every type by pattern or entities, type, event date, recorded time, and `details` fields, returning each hit's id, type, event date, recorded time, description, and a snippet, paged |
+| `revise_journal` | revises a journal entry's description, event date, or entities, or adds an amendment, and returns the revision's id |
+| `search` | finds entries of every type by words or entities, type, event date, recorded time, and `details` fields, returning each hit's id, type, event date, recorded time, description, and a snippet: every hit, or a failure telling how to refine a search that finds more than 100 |
 | `read` | returns full records for a list of ids in one call |
 | `resolve` | returns the likely matching entities for each of a list of names |
 | `store_document` | files a document into the documents store and returns its path and hash |
 
 - **Each tool's description carries the rules it enforces.**
 - **A filed document** is a copy of the file, kept in the documents store at its path, with its `sha256`.
-- **A tool that lets an agent run a query of its own runs DuckDB with its access to other files and to writing turned off.**
+- **A tool that lets an agent run a query of its own runs it on the local index, opened read-only, with its access to other files turned off.**
 
 ## Done when
 
@@ -43,7 +44,6 @@ Configuration is two folders, given to the server when it starts:
 - **An entry names a filed document in its `details`**, by its path and `sha256`. The document is filed first, then the entry that names it is written, so a pointer never points at nothing.
 - **Claude Code asks for the two folders when the plugin is enabled**, through `directory` options in the plugin manifest's `userConfig`, and passes them to the server, so no one edits config by hand.
 - **The launcher builds its virtual environment in the plugin's data folder**, beside the state, so it survives plugin updates.
-
-## Depends on
-
-- [The local index](local-index.md)
+- **`search` takes names as well as slugs**, resolving each to its likely entities and searching by all of them, with each hit saying which name it came through, so a query needs no separate `resolve` call. Every tool call is a turn of the model, so a round trip costs far more than the lookup.
+- **`write_journal` takes names instead of slugs**, writing when each name matches one entity and otherwise refusing with each name's candidates, so the common case is one call.
+- **`read` has a ceiling of its own**, so a caller cannot load hundreds of full bodies in one call and push the question out of its context.

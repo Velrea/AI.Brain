@@ -11,6 +11,7 @@ import re
 from collections.abc import Sequence
 
 from .format import RecordError
+from .index import REVISABLE
 from .read import Reader
 from .write import Writer
 
@@ -50,10 +51,7 @@ class Entries:
         nothing is written. Entities are never removed, so a slug found
         here is still there when the entry is written.
         """
-        entities = _slugs("entities", entities)
-        missing = sorted(set(entities) - self.reader.known_slugs(entities)) if entities else []
-        if missing:
-            raise UnknownEntities(missing)
+        entities = self._known("entities", entities)
         return self.writer.write_entry(
             type="journal",
             version=JOURNAL_VERSION,
@@ -63,6 +61,58 @@ class Entries:
             source=source,
             details={"entities": entities} if entities else {},
         )
+
+    def revise_journal(
+        self,
+        entry: str,
+        *,
+        description: str | None = None,
+        event_date: str | None = None,
+        entities: Sequence[str] | None = None,
+        amendment: str | None = None,
+        source: str | None = None,
+    ) -> str:
+        """Revises a journal entry and returns the revision's id.
+
+        `description`, `event_date`, and `entities` replace the entry's, and
+        each one not given is left as it stands. The body is never replaced:
+        `amendment` is kept under it, such as "Correction: it was three drops,
+        not two.", so the account stays as it was given and the correction
+        travels with it. `entry` is the id of the original entry. Raises
+        RecordError when nothing is revised or `entry` is not a journal
+        entry, and UnknownEntities as `write_journal` does.
+        """
+        given = {"description": description, "event_date": event_date, "entities": entities}
+        revises = [name for name in REVISABLE if given[name] is not None]
+        if not revises and amendment is None:
+            raise RecordError("a revision must change the description, event date, or entities, or add an amendment")
+        if amendment is not None and (not isinstance(amendment, str) or not amendment.strip()):
+            raise RecordError("amendment must be non-empty text")
+        current = next((record for record in self.reader.read([entry]) if record["id"] == entry), None)
+        if current is None or current["type"] != "journal":
+            raise RecordError(f"no journal entry has the id {entry!r}")
+        details = {"revises": revises}
+        if entities is not None:
+            details["entities"] = self._known("entities", entities)
+        return self.writer.write_entry(
+            entry=entry,
+            type="journal",
+            version=JOURNAL_VERSION,
+            # Whole on its own: what it does not revise is the entry's as it stood.
+            event_date=current["event_date"] if event_date is None else event_date,
+            description=current["description"] if description is None else description,
+            body=amendment or "",
+            source=source,
+            details=details,
+        )
+
+    def _known(self, name: str, slugs: object) -> list[str]:
+        """The slugs, each checked as one an entity is recorded under."""
+        slugs = _slugs(name, slugs)
+        missing = sorted(set(slugs) - self.reader.known_slugs(slugs)) if slugs else []
+        if missing:
+            raise UnknownEntities(missing)
+        return slugs
 
     def write_snapshot(self, *, scope: str, description: str, body: str) -> str:
         """Records a folded answer so it need not be recomputed. Returns its id.

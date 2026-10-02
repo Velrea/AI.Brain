@@ -1,6 +1,10 @@
 import datetime as dt
 
+import pytest
+
+import brain.read
 from brain.entries import Entries
+from brain.read import TooManyHits
 from brain.write import Writer
 
 from conftest import entry, event_files, lines_of
@@ -15,24 +19,42 @@ def test_an_invalid_line_and_a_torn_last_line_are_skipped(writer, reader, store)
     with open(path, "ab") as file:
         file.write(b'{"id":"0199a8c4-torn","description":"caf\xc3')  # cut mid-character
 
-    assert [hit.description for hit in reader.search().hits] == ["before", "after"]
+    assert [hit.description for hit in reader.search()] == ["before", "after"]
 
 
-def test_search_returns_lean_hits_a_page_at_a_time_in_event_date_order(
-    writer, other_machine, reader
-):
+def test_search_returns_every_lean_hit_in_event_date_order(writer, other_machine, reader):
     writer.write_entry(**entry(event_date="2026-03-01", description="Tyres"))
     other_machine.write_entry(**entry(event_date="2026-01-01", description="Oil change"))
     writer.write_entry(**entry(event_date="2026-02-01", description="Brakes"))
 
-    first = reader.search(limit=2)
-    second = reader.search(limit=2, offset=2)
+    hits = reader.search()
 
     # Records from two files interleave by what they say happened, not where they sit.
-    assert [hit.description for hit in first.hits + second.hits] == ["Oil change", "Brakes", "Tyres"]
-    assert first.total == second.total == reader.search(offset=5).total == 3
-    oil = first.hits[0]
+    assert [hit.description for hit in hits] == ["Oil change", "Brakes", "Tyres"]
+    assert [hit.description for hit in reader.search(newest_first=True)] == ["Tyres", "Brakes", "Oil change"]
+    oil = hits[0]
     assert (oil.type, oil.event_date, oil.snippet) == ("journal", "2026-01-01", "## Service Oil and filter changed.")
+
+
+def test_a_search_finding_more_than_the_ceiling_fails_with_ranges_that_fit(
+    writer, reader, monkeypatch
+):
+    monkeypatch.setattr(brain.read, "CEILING", 3)
+    for day, count in (("2026-01-01", 2), ("2026-01-02", 1), ("2026-01-03", 2), ("2026-01-04", 4)):
+        for n in range(count):
+            writer.write_entry(**entry(event_date=day, description=f"{day} {n}"))
+
+    with pytest.raises(TooManyHits) as refused:
+        reader.search("oil")
+
+    assert refused.value.total == 9
+    # Each range fits the ceiling, except a single day no date range can split.
+    assert refused.value.ranges == [
+        ("2026-01-01", "2026-01-02", 3), ("2026-01-03", "2026-01-03", 2), ("2026-01-04", "2026-01-04", 4),
+    ]
+    assert "9 entries match" in str(refused.value)
+    assert "2026-01-01 to 2026-01-02 (3)" in str(refused.value)
+    assert len(reader.search("oil", event_date_to="2026-01-02")) == 3
 
 
 def test_a_pattern_matches_description_or_body_of_any_type_in_any_case(writer, reader):
@@ -43,7 +65,7 @@ def test_a_pattern_matches_description_or_body_of_any_type_in_any_case(writer, r
     ))
     writer.write_entry(**entry(description="Oil change"))
 
-    hits = reader.search("ZORBLAX|fizzlorin").hits
+    hits = reader.search("ZORBLAX OR fizzlorin")
 
     assert [(hit.type, hit.description) for hit in hits] == [
         ("journal", "Started Zorblax"), ("snapshot", "Current potions"),
@@ -63,7 +85,7 @@ def test_search_filters_by_type_event_date_recorded_time_and_details(store, tmp_
     writer.write_entry(**entry(event_date="2026-03-10", description="Late"))
 
     def found(**filters):
-        return [hit.description for hit in reader.search(**filters).hits]
+        return [hit.description for hit in reader.search(**filters)]
 
     assert found(types=["snapshot"]) == ["Snapshot"]
     assert found(event_date_from="2026-02-01", event_date_to="2026-03-10") == ["February", "Late"]
@@ -78,9 +100,9 @@ def test_read_returns_full_records_for_a_list_of_ids_in_one_call(writer, reader)
     first, second = reader.read([tyres, "0199a8c4-missing", oil])
 
     assert first == {
-        "id": oil, "type": "journal", "version": 1, "recorded_at": first["recorded_at"],
+        "id": oil, "entry": oil, "type": "journal", "version": 1, "recorded_at": first["recorded_at"],
         "event_date": "2026-01-10", "description": "Oil change", "source": "voice",
-        "body": "## Service\nOil and filter changed.", "details": {"odometer": 48210},
+        "body": "## Service\nOil and filter changed.", "details": {"odometer": 48210}, "amendments": [],
     }
     assert (second["id"], second["source"], second["details"]) == (tyres, None, {})
 
@@ -93,7 +115,7 @@ def test_a_record_in_two_files_is_returned_once(writer, other_machine, reader, s
     with open(theirs, "ab") as file:
         file.write(line + b"\n")
 
-    assert [hit.id for hit in reader.search("oil").hits] == [copied]
+    assert [hit.id for hit in reader.search("oil")] == [copied]
     assert [record["id"] for record in reader.read([copied])] == [copied]
 
 
@@ -115,7 +137,7 @@ def test_search_finds_entries_by_the_pattern_or_the_entities_they_name(writer, e
                                details={"entities": ["car"]}))
 
     def found(pattern=None, **filters):
-        return [hit.description for hit in reader.search(pattern, **filters).hits]
+        return [hit.description for hit in reader.search(pattern, **filters)]
 
     # The entity itself is a hit too, dated the day it was stated.
     assert found(entities=["zorblax"]) == ["Started Zorblax", "Doubled the dose", "Zorblax"]

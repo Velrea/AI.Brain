@@ -40,8 +40,9 @@ def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, store):
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"description": " "}, {"body": chr(0xD800)}],
-    ids=["blank description", "text that is not valid Unicode"],
+    [{"description": " "}, {"body": chr(0xD800)}, {"body": ""}, {"entry": "not-an-id", "body": ""}],
+    ids=["blank description", "text that is not valid Unicode", "an original with no body",
+         "a revision naming no entry"],
 )
 def test_a_rejected_entry_writes_nothing(writer, store, overrides):
     with pytest.raises(RecordError):

@@ -4,6 +4,7 @@ Writing and reading both import this module, and neither imports the other.
 """
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -13,15 +14,17 @@ from pathlib import Path
 EVENTS_DIR = "events"
 """The one flat folder, inside the event store, that holds every event file."""
 
-_FILE_NAME = re.compile(
-    r"^h-(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.jsonl$"
-)
+_UUID7 = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+_FILE_NAME = re.compile(rf"^h-(?P<id>{_UUID7})\.jsonl$")
 
 FIELDS = (
-    "id", "type", "version", "recorded_at", "event_date", "description", "source", "body", "details",
+    "id", "entry", "type", "version", "recorded_at", "event_date", "description", "source", "body",
+    "details",
 )
-"""The envelope every record carries, in the order its line holds them. `source`
-is the only optional field. What a type adds goes in `details`, never beside it."""
+"""The envelope every record carries, in the order its line holds them. `entry` is
+the entry the record belongs to: its own id on an original, the original's on a
+revision. `source` is the only optional field. What a type adds goes in `details`,
+never beside it."""
 
 # Valid inside a JSON string, but a reader that splits lines on them would tear the record.
 _LINE_SEPARATORS = {"\u2028": "\\u2028", "\u2029": "\\u2029"}
@@ -33,6 +36,13 @@ class RecordError(ValueError):
 
 def events_dir(event_store: Path) -> Path:
     return Path(event_store) / EVENTS_DIR
+
+
+def state_key(event_store: Path) -> str:
+    """Names this machine's state for one event store, so two Brains on one
+    machine never share a lock, a current file, or an index."""
+    path = os.path.normcase(str(Path(event_store).resolve()))
+    return hashlib.sha256(path.encode()).hexdigest()[:16]
 
 
 def new_file_name(at: dt.datetime) -> str:
@@ -67,6 +77,7 @@ def uuid7_time(value: uuid.UUID) -> dt.datetime:
 
 def check_entry(
     *,
+    entry: str | None = None,
     type: str,
     version: int,
     event_date: str,
@@ -75,13 +86,20 @@ def check_entry(
     source: str | None,
     details: dict,
 ) -> None:
-    """Raises RecordError for a blank or invalid field of the envelope."""
+    """Raises RecordError for a blank or invalid field of the envelope.
+
+    `entry` is given only for a revision, whose body is an amendment and may
+    be empty when it changes only metadata.
+    """
+    if entry is not None and (not isinstance(entry, str) or re.fullmatch(_UUID7, entry) is None):
+        raise RecordError(f"entry must be the id of an entry: {entry!r}")
     _text("type", type, one_line=True)
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RecordError("version must be a whole number from 1")
     _date(event_date)
     _text("description", description, one_line=True)
-    _text("body", body, one_line=False)
+    if entry is None or body != "":
+        _text("body", body, one_line=False)
     if source is not None:
         _text("source", source, one_line=True)
     if not isinstance(details, dict):

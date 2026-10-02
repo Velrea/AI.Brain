@@ -1,90 +1,74 @@
-"""The read path: finds and returns entries by reading every event file in place.
+"""The read path: finds and returns entries from this machine's local index.
 
-DuckDB reads the files where they lie, with no index and no second copy, and
-every call reads every file afresh, so a machine that has gone quiet can come
-back. Reading is generic: entries of every type are found and returned the
-same way, and only resolving names to entities knows a type. It depends on
-the file format alone, never on the writer.
+Every call catches the index up with the files first, so a machine that has
+gone quiet can come back and its records are simply there. Reading is generic:
+entries of every type are found and returned the same way, and only resolving
+names to entities knows a type. It depends on the file format and the index,
+never on the writer.
 """
 
 import datetime as dt
 import json
+import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-import duckdb
+from .format import FIELDS
+from .index import Index, plain
 
-from .format import FIELDS, events_dir, is_event_file
-
-PAGE = 20
+CEILING = 100
+"""The most hits a search returns. One that finds more returns none, so a
+caller never mistakes part of a result for the whole of it."""
+RANGES = 12
+"""The most event-date ranges a refusal suggests; past that it counts by year."""
 SNIPPET = 160
-"""Characters of the body a search hit carries, around the first match."""
+"""Characters of the body a hit carries when no pattern picks where to cut it."""
+SNIPPET_WORDS = 25
+"""Words a hit's snippet carries around the best match of a pattern."""
 MATCHES = 5
 """Entities resolving returns for each name, at most."""
 LIKELY = 0.8
 """The least score, from 0 to 1, an entity needs to be a likely match for a name."""
 
-_COLUMNS = ", ".join(f"{name}: '{kind}'" for name, kind in {
-    "id": "VARCHAR", "type": "VARCHAR", "version": "INTEGER", "recorded_at": "VARCHAR",
-    "event_date": "VARCHAR", "description": "VARCHAR", "source": "VARCHAR", "body": "VARCHAR",
-    "details": "JSON",
-}.items())
-
-# The entries in every file that meet `where`, each id once. A line that is not valid
-# JSON, a torn last line among them, comes back empty and is dropped, as is a line
-# missing the envelope. A line copied into two files is the same record, so one copy
-# is kept. The copies are identical, so any one will do, and filtering before keeping
-# one gives the same entries while sparing the many that do not match.
-_ENTRIES = """
-entries AS (
-    SELECT * FROM read_json(
-        ?, format = 'newline_delimited', columns = {{{columns}}},
-        ignore_errors = true
-    )
-    WHERE id IS NOT NULL AND type IS NOT NULL AND event_date IS NOT NULL
-      AND description IS NOT NULL AND body IS NOT NULL AND {where}
-    QUALIFY row_number() OVER (PARTITION BY id) = 1
-)
-"""
-
-
-def _entries(where: str) -> str:
-    return _ENTRIES.format(columns=_COLUMNS, where=where)
-
-
-# Each entity as its statements hold it now. A slug restated is the same entity: its
-# name and kind are the newest statement's, and its aliases every statement's, so two
-# machines adding aliases before they sync lose neither.
-_CURRENT = """
-current AS (
-    SELECT json_extract_string(details, '$.slug') AS slug,
-           arg_max(id, event_date || id) AS id,
-           arg_max(description, event_date || id) AS name,
-           arg_max(json_extract_string(details, '$.kind'), event_date || id) AS kind,
-           list_sort(list_distinct(flatten(list(
-               coalesce(json_extract_string(details, '$.aliases[*]'), [])
-           )))) AS aliases
-    FROM entries
-    WHERE slug IS NOT NULL
-    GROUP BY slug
-)
-"""
-
-# A name compared in any case, with its punctuation, hyphens among it, read as spaces.
-_PLAIN = r"trim(regexp_replace(lower({}), '[^\pL\pN]+', ' ', 'g'))"
-
-# How well a form of an entity's name fits a name asked for: the same, one held
-# whole in the other as words, or else how alike they are spelled.
-_SCORE = """
-CASE WHEN form = asked THEN 1.0
-     WHEN contains(' ' || form || ' ', ' ' || asked || ' ')
-       OR contains(' ' || asked || ' ', ' ' || form || ' ') THEN 0.9
-     ELSE jaro_winkler_similarity(form, asked) END
-"""
+# A pattern's terms: a "quoted phrase" or a bare word, either one excluded by a
+# leading hyphen or ending in * to match as a prefix.
+_TERM = re.compile(r'(-?)"([^"]*)"?(\*?)|(\S+)')
+# Marks where FTS5 found a match in a snippet, to tell which column matched.
+_START, _END = "\x02", "\x03"
 
 
 class PatternError(ValueError):
-    """A search pattern that is not a valid regular expression."""
+    """A search pattern with nothing to look for."""
+
+
+class TooManyHits(ValueError):
+    """A search that found more entries than it returns, so returned none.
+
+    `ranges` split the entries by event date, each a (from, to, count), every
+    one within the ceiling where dates alone can make it so.
+    """
+
+    def __init__(self, total: int, ranges: list[tuple[str, str, int]]):
+        self.total = total
+        self.ranges = ranges
+        if len(ranges) <= RANGES:
+            spans = ", ".join(
+                f"{start} ({count})" if start == end else f"{start} to {end} ({count})"
+                for start, end, count in ranges
+            )
+            by_date = f"search these event-date ranges, each {CEILING} or fewer: {spans}"
+        else:
+            years = {}
+            for start, _, count in ranges:
+                years[start[:4]] = years.get(start[:4], 0) + count
+            spans = ", ".join(f"{year} ({count})" for year, count in years.items())
+            by_date = f"search by event date; by year: {spans}"
+        super().__init__(
+            f"{total} entries match, more than the {CEILING} a search returns. Refine it: add"
+            f" words, entities, types, or details to narrow it, split it into more targeted"
+            f" searches, or {by_date}."
+        )
 
 
 @dataclass(frozen=True)
@@ -107,18 +91,12 @@ class Entity:
     aliases: list[str]
 
 
-@dataclass(frozen=True)
-class Page:
-    hits: list[Hit]
-    total: int
-    """How many entries match, across every page."""
-
-
 class Reader:
-    """Reads one event store. Order is by event date, never by file or position."""
+    """Reads one event store through this machine's index of it, kept in
+    `state_dir`. Order is by event date, never by file or position."""
 
-    def __init__(self, event_store: Path):
-        self.events = events_dir(Path(event_store).resolve())
+    def __init__(self, event_store: Path, state_dir: Path):
+        self.index = Index(event_store, state_dir)
 
     def search(
         self,
@@ -131,39 +109,38 @@ class Reader:
         details: dict[str, str] | None = None,
         entities: list[str] | None = None,
         newest_first: bool = False,
-        limit: int = PAGE,
-        offset: int = 0,
-    ) -> Page:
-        """Finds entries of any type and returns one page of lean hits.
+    ) -> list[Hit]:
+        """Finds entries of any type and returns every one as a lean hit.
 
-        `pattern` is a regular expression, as grep takes, matched in any case
-        against the description and the body. `entities` are slugs: an entry
-        that names any of them is a hit, and so is the entity itself. Given
-        both, an entry is a hit when either finds it, so an entry whose
+        `pattern` is words to find, in any case, in the description, the body,
+        or an amendment: every word must appear, in any form of it, so `drop`
+        finds "drops". A "quoted phrase" must appear as written, a word or
+        phrase ending in * matches as a prefix, one starting with - must not
+        appear, and OR between terms finds either side. `entities` are slugs:
+        an entry that names any of them is a hit, and so is the entity itself.
+        Given both, an entry is a hit when either finds it, so an entry whose
         entities were missed when it was written is still found by its words.
-        The event dates are inclusive. `recorded_after` is a UTC time or date.
-        `details` matches a type's own fields exactly. Raises PatternError for
-        a pattern that does not parse.
+        The event dates are inclusive. `recorded_after` is a UTC time or date,
+        and finds entries recorded or revised after it. `details` matches a
+        type's own fields exactly. Raises PatternError for a pattern with
+        nothing to look for, and TooManyHits, with how to refine it, when more
+        entries match than the ceiling.
         """
-        if limit < 1 or offset < 0:
-            raise ValueError("limit must be at least 1 and offset at least 0")
         where, params = ["true"], []
         found, found_params = [], []
-        if pattern is not None:
-            found.append("regexp_matches(description || chr(10) || body, ?, 'i')")
-            found_params.append(pattern)
+        match = _match(pattern) if pattern is not None else None
+        if match is not None:
+            found.append("rowid IN (SELECT rowid FROM words WHERE words MATCH ?)")
+            found_params.append(match)
         if entities is not None:
-            found.append(
-                "(list_has_any(json_extract_string(details, '$.entities[*]'), ?::VARCHAR[])"
-                " OR type = 'entity' AND list_contains(?::VARCHAR[], json_extract_string(details, '$.slug')))"
-            )
-            found_params += [list(entities), list(entities)]
+            found.append("key IN (SELECT key FROM subjects WHERE slug IN (SELECT value FROM json_each(?)))")
+            found_params.append(json.dumps(list(entities)))
         if found:
             where.append(f"({' OR '.join(found)})")
             params += found_params
         if types is not None:
-            where.append("list_contains(?::VARCHAR[], type)")
-            params.append(list(types))
+            where.append("type IN (SELECT value FROM json_each(?))")
+            params.append(json.dumps(list(types)))
         if event_date_from is not None:
             where.append("event_date >= ?")
             params.append(_date(event_date_from))
@@ -171,46 +148,37 @@ class Reader:
             where.append("event_date <= ?")
             params.append(_date(event_date_to))
         if recorded_after is not None:
-            where.append("recorded_at > ?")
+            where.append("changed_at > ?")
             params.append(_utc(recorded_after))
         for name, value in (details or {}).items():
-            where.append("json_extract_string(details, ?) = ?")
-            params += [_pointer(name), value]
-        entries = _entries(" AND ".join(where))
-        # The snippet starts a third of its length before the first match in the body.
-        if pattern is not None:
-            start = f"greatest(1, strpos(body, regexp_extract(body, ?, 0, 'i')) - {SNIPPET // 3})"
-            start_params = [pattern]
-        else:
-            start, start_params = "1", []
-        order = "DESC" if newest_first else "ASC"
-        sql = f"""
-            WITH {entries}, matched AS (
-                SELECT id, type, event_date, recorded_at, description, body, {start} AS start
-                FROM entries
-            ), cut AS (
-                SELECT id, type, event_date, recorded_at, description,
-                       substr(body, start, {SNIPPET}) AS text, start > 1 AS before,
-                       length(body) >= start + {SNIPPET} AS after
-                FROM matched
+            path = _path(name)
+            # As text, the way JSON writes it, so a number or a flag matches too.
+            where.append(
+                "CASE json_type(details, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false'"
+                " ELSE CAST(json_extract(details, ?) AS TEXT) END = ?"
             )
-            SELECT *, count(*) OVER () FROM cut
-            ORDER BY event_date {order}, id {order}
-            LIMIT ? OFFSET ?
-        """
-        try:
-            rows = self._query(sql, [*params, *start_params, limit, offset])
-            if rows or not offset:
-                total = rows[0][-1] if rows else 0
-            else:  # Paged past the end, so no row carried the total.
-                [(total,)] = self._query(f"WITH {entries} SELECT count(*) FROM entries", params) or [(0,)]
-        except duckdb.InvalidInputException as error:
-            raise PatternError(str(error)) from error
-        hits = [
-            Hit(id, type, event_date, recorded_at, description, _snippet(text, before, after))
-            for id, type, event_date, recorded_at, description, text, before, after, _ in rows
+            params += [path, path, str(value)]
+        conditions = " AND ".join(where)
+        order = "DESC" if newest_first else "ASC"
+        with self.index.connect() as con:
+            rows = con.execute(
+                f"SELECT rowid, id, type, event_date, recorded_at, description"
+                f" FROM entries WHERE {conditions}"
+                f" ORDER BY event_date {order}, id {order} LIMIT ?",
+                [*params, CEILING + 1],
+            ).fetchall()
+            if len(rows) > CEILING:
+                days = con.execute(
+                    f"SELECT event_date, count(*) FROM entries WHERE {conditions}"
+                    " GROUP BY event_date ORDER BY event_date",
+                    params,
+                ).fetchall()
+                raise TooManyHits(sum(count for _, count in days), _ranges(days))
+            snippets = _snippets(con, [row[0] for row in rows], match)
+        return [
+            Hit(id, type, event_date, recorded_at, description, snippets[rowid])
+            for rowid, id, type, event_date, recorded_at, description in rows
         ]
-        return Page(hits, total)
 
     def resolve(self, names: list[str], *, limit: int = MATCHES) -> dict[str, list[Entity]]:
         """The likely matching entities for each name, best first.
@@ -227,71 +195,191 @@ class Reader:
         found: dict[str, list[Entity]] = {name: [] for name in names}
         if not found:
             return found
-        rows = self._query(
-            f"""
-            WITH {_entries("type = 'entity'")}, {_CURRENT}, forms AS (
-                SELECT slug, {_PLAIN.format("form")} AS form
-                FROM (SELECT slug, unnest(list_concat([slug, name], aliases)) AS form FROM current)
-            ), asked AS (
-                SELECT name, {_PLAIN.format("name")} AS asked FROM unnest(?::VARCHAR[]) AS t(name)
-            ), scored AS (
-                SELECT name, slug, max({_SCORE}) AS score
-                FROM asked CROSS JOIN forms
-                GROUP BY name, slug
-            )
-            SELECT scored.name, id, slug, current.name, kind, aliases
-            FROM scored JOIN current USING (slug)
-            WHERE score >= {LIKELY}
-            QUALIFY row_number() OVER (PARTITION BY scored.name ORDER BY score DESC, slug) <= ?
-            ORDER BY scored.name, score DESC, slug
-            """,
-            [list(found), limit],
-        )
-        for name, *entity in rows:
-            found[name].append(Entity(*entity))
+        with self.index.connect() as con:
+            forms = con.execute("SELECT slug, form FROM forms").fetchall()
+            best = {}
+            for name in found:
+                asked = plain(name)
+                scores = {}
+                for slug, form in forms:
+                    score = _score(form, asked)
+                    if score >= LIKELY and score > scores.get(slug, 0):
+                        scores[slug] = score
+                best[name] = sorted(scores, key=lambda slug: (-scores[slug], slug))[:limit]
+            wanted = sorted({slug for slugs in best.values() for slug in slugs})
+            entities = {}
+            for id, details, name in con.execute(
+                "SELECT id, details, description FROM entries"
+                " WHERE key IN (SELECT 'entity:' || value FROM json_each(?))",
+                (json.dumps(wanted),),
+            ):
+                details = json.loads(details)
+                entities[details["slug"]] = Entity(id, details["slug"], name, details.get("kind"), details["aliases"])
+        for name, slugs in best.items():
+            found[name] = [entities[slug] for slug in slugs]
         return found
 
     def known_slugs(self, slugs: list[str]) -> set[str]:
         """Those of `slugs` that some entity has been recorded under."""
-        rows = self._query(
-            f"WITH {_entries('''type = 'entity' ''')}"
-            " SELECT DISTINCT json_extract_string(details, '$.slug') AS slug FROM entries"
-            " WHERE list_contains(?::VARCHAR[], slug)",
-            [list(slugs)],
-        )
+        with self.index.connect() as con:
+            rows = con.execute(
+                "SELECT DISTINCT slug FROM records WHERE slug IN (SELECT value FROM json_each(?))",
+                (json.dumps(list(slugs)),),
+            ).fetchall()
         return {slug for (slug,) in rows}
 
     def read(self, ids: list[str]) -> list[dict]:
-        """The full records for `ids`, in event-date order. An id not found is left out."""
-        rows = self._query(
-            f"WITH {_entries('list_contains(?::VARCHAR[], id)')}"
-            f" SELECT {', '.join(FIELDS)} FROM entries ORDER BY event_date, id",
-            [list(ids)],
-        )
+        """The full records for `ids`, in event-date order, each as it stands now.
+
+        An entry comes with its revisions applied and its `amendments`, oldest
+        first, under its body, which is never replaced; an entity comes as its
+        statements hold it now. The id of a revision or of an older statement
+        reads the entry it belongs to. An id not found is left out.
+        """
+        with self.index.connect() as con:
+            rows = con.execute(
+                f"SELECT {', '.join('id' if name == 'entry' else name for name in FIELDS)}, amendments"
+                " FROM entries WHERE key IN ("
+                "   SELECT CASE WHEN slug IS NOT NULL THEN 'entity:' || slug ELSE entry END"
+                "   FROM records WHERE id IN (SELECT value FROM json_each(?))"
+                " ) ORDER BY event_date, id",
+                (json.dumps(list(ids)),),
+            ).fetchall()
         return [_record(row) for row in rows]
 
-    def _query(self, sql: str, params: list) -> list[tuple]:
-        """Runs `sql` with the event files as its first parameter, on a fresh connection."""
-        paths = sorted(str(p) for p in self.events.glob("*.jsonl") if is_event_file(p.name))
-        if not paths:
-            return []
-        with duckdb.connect() as con:
-            return con.execute(sql, [paths, *params]).fetchall()
+
+def _match(pattern: str) -> str:
+    """A pattern as an FTS5 query. Every term is quoted, so no character of it
+    reaches FTS5's own syntax: `Dr. J` and `dr-jekyll` are searched as words."""
+    groups, positive, negative = [], [], []
+    for term in _TERM.finditer(pattern):
+        if term[4] is not None:
+            word = term[4]
+            if word == "OR":
+                groups.append((positive, negative))
+                positive, negative = [], []
+                continue
+            excluded = word.startswith("-") and len(word) > 1
+            word = word[1:] if excluded else word
+            prefix = word.endswith("*")
+            word = word.rstrip("*")
+        else:
+            excluded, word, prefix = bool(term[1]), term[2], bool(term[3])
+        if not any(ch.isalnum() for ch in word):
+            continue
+        quoted = '"' + word.replace('"', '""') + '"' + ("*" if prefix else "")
+        (negative if excluded else positive).append(quoted)
+    groups.append((positive, negative))
+    parts = []
+    for positive, negative in groups:
+        if negative and not positive:
+            raise PatternError("a pattern needs a word to find, not only words to leave out")
+        if positive:
+            part = " AND ".join(positive)
+            parts.append(f"(({part}) NOT ({' OR '.join(negative)}))" if negative else f"({part})")
+    if not parts:
+        raise PatternError("a pattern needs a word to find")
+    return " OR ".join(parts)
+
+
+def _ranges(days: list[tuple[str, int]]) -> list[tuple[str, str, int]]:
+    """Consecutive event dates packed into ranges of at most the ceiling each. A
+    single date past the ceiling is a range of its own, which dates cannot split."""
+    ranges = []
+    for day, count in days:
+        if ranges and ranges[-1][2] + count <= CEILING:
+            start, _, total = ranges[-1]
+            ranges[-1] = (start, day, total + count)
+        else:
+            ranges.append((day, day, count))
+    return ranges
+
+
+def _snippets(con: sqlite3.Connection, rowids: list[int], match: str | None) -> dict[int, str]:
+    """Each hit's snippet: around the best match in its body or its amendments,
+    whichever matches more, or else the start of its body."""
+    snippets = {}
+    if match is not None and rowids:
+        cut = f"'{_START}', '{_END}', '…', {SNIPPET_WORDS}"
+        for rowid, body, amended in con.execute(
+            f"SELECT rowid, snippet(words, 1, {cut}), snippet(words, 2, {cut}) FROM words"
+            " WHERE words MATCH ? AND rowid IN (SELECT value FROM json_each(?))",
+            (match, json.dumps(rowids)),
+        ):
+            text = max((body, amended), key=lambda text: text.count(_START))
+            if _START in text:
+                snippets[rowid] = _plain(text.replace(_START, "").replace(_END, ""))
+    missing = [rowid for rowid in rowids if rowid not in snippets]
+    if missing:
+        for rowid, text, more in con.execute(
+            f"SELECT rowid, substr(body, 1, {SNIPPET}), length(body) > {SNIPPET} FROM entries"
+            " WHERE rowid IN (SELECT value FROM json_each(?))",
+            (json.dumps(missing),),
+        ):
+            snippets[rowid] = _plain(text) + ("…" if more else "")
+    return snippets
+
+
+def _score(form: str, asked: str) -> float:
+    """How well a form of an entity's name fits a name asked for: the same, one held
+    whole in the other as words, or else how alike they are spelled."""
+    if form == asked:
+        return 1.0
+    if f" {asked} " in f" {form} " or f" {form} " in f" {asked} ":
+        return 0.9
+    return jaro_winkler(form, asked)
+
+
+def jaro_winkler(a: str, b: str) -> float:
+    """The Jaro-Winkler similarity of two strings, from 0 to 1, with a common
+    prefix of up to four characters raising it once it is above 0.7."""
+    if a == b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    if len(a) > len(b):
+        a, b = b, a
+    window = max(len(b) // 2 - 1, 0)
+    taken = [False] * len(b)
+    matched = []
+    for i, ch in enumerate(a):
+        j = b.find(ch, max(0, i - window), i + window + 1)
+        while j != -1 and taken[j]:
+            j = b.find(ch, j + 1, i + window + 1)
+        if j != -1:
+            taken[j] = True
+            matched.append(ch)
+    m = len(matched)
+    if not m:
+        return 0.0
+    transposed = sum(x != y for x, y in zip(matched, (ch for ch, t in zip(b, taken) if t))) / 2
+    jaro = (m / len(a) + m / len(b) + (m - transposed) / m) / 3
+    if jaro <= 0.7:
+        return jaro
+    prefix = 0
+    for x, y in zip(a[:4], b[:4]):
+        if x != y:
+            break
+        prefix += 1
+    return jaro + prefix * 0.1 * (1 - jaro)
 
 
 def _record(row: tuple) -> dict:
     record = dict(zip(FIELDS, row))
-    record["details"] = json.loads(record["details"]) if record["details"] else {}
+    record["details"] = json.loads(record["details"])
+    record["amendments"] = json.loads(row[-1])
     return record
 
 
-def _snippet(text: str, before: bool, after: bool) -> str:
-    return ("…" if before else "") + " ".join(text.split()) + ("…" if after else "")
+def _plain(text: str) -> str:
+    return " ".join(text.split())
 
 
-def _pointer(name: str) -> str:
-    """A JSON pointer to a top-level field of `details`."""
-    return "/" + name.replace("~", "~0").replace("/", "~1")
+def _path(name: str) -> str:
+    """A JSON path to a top-level field of `details`."""
+    if '"' in name:
+        raise ValueError(f"a details field name cannot hold a double quote: {name!r}")
+    return f'$."{name}"'
 
 
 def _date(value: str) -> str:
