@@ -50,6 +50,16 @@ def test_a_rejected_entry_writes_nothing(writer, store, overrides):
     assert event_files(store) == []
 
 
+def test_ids_order_as_written_even_within_one_millisecond(store, state):
+    clock = Clock()
+    ids = [Writer(store, state, clock=clock).write_entry(**entry()) for _ in range(3)]
+    writer = Writer(store, state, clock=clock)
+    ids += [writer.write_entry(**entry()) for _ in range(30)]
+
+    assert ids == sorted(ids)
+    assert len(set(ids)) == len(ids)
+
+
 def test_a_torn_last_line_is_ended_before_the_next_append(writer, store):
     writer.write_entry(**entry(description="first"))
     [path] = event_files(store)

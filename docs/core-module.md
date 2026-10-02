@@ -23,7 +23,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
 
 <state folder>/                this machine's own, never synced
   <key>.lock                   the lock file
-  <key>.json                   the file this machine appends to, and its line count
+  <key>.json                   the file this machine appends to, its line count, and its last id's time
   <key>.index-v1.sqlite        the local index
 ```
 
@@ -42,7 +42,7 @@ Each record is one line of UTF-8 JSON, ended by a newline, with one envelope sha
 
 | Field | Carries |
 | --- | --- |
-| `id` | A UUIDv7, stamped by the write path. Unique everywhere without coordination; it carries no meaning a query relies on. |
+| `id` | A UUIDv7, stamped by the write path. Unique everywhere without coordination. Each is later than every id its machine wrote before, even within one millisecond, so a machine's records order by id as it wrote them, and the newest of a revision or a restatement never turns on chance. |
 | `entry` | The entry the record belongs to: its own `id` on an original, the original's on a [revision](#revisions). Stamped by the write path, and never empty, so every record has the same shape. |
 | `type` | The kind of entry, such as `journal`. |
 | `version` | The version of that type's shape the record was written under, fixed by the type's method. |

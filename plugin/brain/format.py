@@ -62,17 +62,24 @@ def file_created_at(name: str) -> dt.datetime:
     return uuid7_time(uuid.UUID(match["id"]))
 
 
-def uuid7(at: dt.datetime) -> uuid.UUID:
-    """A UUIDv7 (RFC 9562) whose time is `at`, to the millisecond."""
-    ms = int(at.timestamp() * 1000) & ((1 << 48) - 1)
+def uuid7(at: dt.datetime, *, after: int = -1) -> uuid.UUID:
+    """A UUIDv7 (RFC 9562) whose time is `at`, to the millisecond, or the
+    millisecond past `after` when `at` is no later, so a writer's ids order
+    as it wrote them even within one millisecond."""
+    ms = max(int(at.timestamp() * 1000), after + 1) & ((1 << 48) - 1)
     rand = int.from_bytes(os.urandom(10), "big")
     rand_a = rand >> 68 & 0xFFF
     rand_b = rand & ((1 << 62) - 1)
     return uuid.UUID(int=ms << 80 | 0x7 << 76 | rand_a << 64 | 0b10 << 62 | rand_b)
 
 
+def uuid7_ms(value: uuid.UUID) -> int:
+    """The time of a UUIDv7, in milliseconds since the epoch."""
+    return value.int >> 80
+
+
 def uuid7_time(value: uuid.UUID) -> dt.datetime:
-    return dt.datetime.fromtimestamp((value.int >> 80) / 1000, dt.timezone.utc)
+    return dt.datetime.fromtimestamp(uuid7_ms(value) / 1000, dt.timezone.utc)
 
 
 def check_entry(
