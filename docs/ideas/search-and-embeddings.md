@@ -2,7 +2,7 @@
 
 Concerns reading.
 
-Meaning-based search over the Brain, beside the full-text search the local index brings.
+Meaning-based search over the Brain, beside the full-text search the local index holds.
 
 - **Vectors live in the local index**, beside the full-text index, and are searched there.
 - **Embeddings are computed on the read side and kept outside the disposable index**, keyed by a hash of the text and the model, so rebuilding the index never recomputes one. One Brain keeps one embedding model, and it runs locally: nothing is sent off the machine.

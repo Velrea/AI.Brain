@@ -73,8 +73,8 @@ def other_machine(store: Path, tmp_path: Path) -> Writer:
 
 
 @pytest.fixture
-def reader(store: Path) -> Reader:
-    return Reader(store)
+def reader(store: Path, state: Path) -> Reader:
+    return Reader(store, state)
 
 
 @pytest.fixture

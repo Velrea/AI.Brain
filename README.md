@@ -29,14 +29,14 @@ claude plugin install brain@ai-brain
 
 ## Development
 
-The tests need Python 3.11 or later, pytest, and the packages the plugin pins in `plugin/requirements.txt`. From the repository root:
+The tests need Python 3.11 or later and pytest. The plugin needs no other package: it reads through the SQLite built into Python, which must include full-text search, as the builds from python.org and most Linux distributions do. From the repository root:
 
 ```bash
 python -m venv .venv
 ```
 
 ```bash
-.venv/Scripts/python -m pip install pytest -r plugin/requirements.txt
+.venv/Scripts/python -m pip install pytest
 ```
 
 ```bash

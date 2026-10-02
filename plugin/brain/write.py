@@ -6,7 +6,6 @@ machine's state folder, outside the synced folders.
 """
 
 import datetime as dt
-import hashlib
 import json
 import os
 import time
@@ -20,7 +19,9 @@ from .format import (
     file_created_at,
     is_event_file,
     new_file_name,
+    state_key,
     uuid7,
+    uuid7_ms,
 )
 from .lock import FileLock
 
@@ -63,14 +64,14 @@ class Writer:
         self.events = events_dir(self.event_store)
         self.append_retry = append_retry
         self.clock = clock
-        # Named for the event store's path, so two Brains never share a lock or a current file.
-        key = hashlib.sha256(os.path.normcase(str(self.event_store)).encode()).hexdigest()[:16]
+        key = state_key(self.event_store)
         self._state_path = Path(state_dir) / f"{key}.json"
         self._lock = FileLock(Path(state_dir) / f"{key}.lock", lock_timeout)
 
     def write_entry(
         self,
         *,
+        entry: str | None = None,
         type: str,
         version: int,
         event_date: str,
@@ -83,14 +84,17 @@ class Writer:
 
         Callers write through a type's own method in `entries`, which fixes
         the type, its version, and its details. `id` and `recorded_at` are
-        stamped here. Raises RecordError for a blank or invalid field,
-        LockTimeout when another session holds the lock too long, and
-        AppendBlocked when the file stays blocked past the retries.
+        stamped here, and `entry`, the entry the record belongs to, is its
+        own id unless it is given: a revision names the entry it revises,
+        and its body, an amendment, may be empty. Raises RecordError for a
+        blank or invalid field, LockTimeout when another session holds the
+        lock too long, and AppendBlocked when the file stays blocked past
+        the retries.
         """
         details = {} if details is None else details
         check_entry(
-            type=type, version=version, event_date=event_date, description=description,
-            body=body, source=source, details=details,
+            entry=entry, type=type, version=version, event_date=event_date,
+            description=description, body=body, source=source, details=details,
         )
         record = {
             "type": type, "version": version, "event_date": event_date,
@@ -100,9 +104,13 @@ class Writer:
             record["source"] = source
         with self._lock:
             now = self.clock()
-            record |= {"id": str(uuid7(now)), "recorded_at": _utc_text(now)}
+            # Later than every id this machine wrote here: what orders by id, such as the
+            # newest revision of a field, must not turn on chance within a millisecond.
+            stamp = uuid7(now, after=self._last_ms())
+            id = str(stamp)
+            record |= {"id": id, "entry": entry or id, "recorded_at": _utc_text(now)}
             line = encode(record)
-            self._retrying(lambda: self._append_line(line, now))
+            self._retrying(lambda: self._append_line(line, now, uuid7_ms(stamp)))
         return record["id"]
 
     def _retrying(self, attempt: Callable[[], None]) -> None:
@@ -117,7 +125,7 @@ class Writer:
                 time.sleep(delay)
                 delay = min(delay * 2, 1.0)
 
-    def _append_line(self, line: bytes, now: dt.datetime) -> None:
+    def _append_line(self, line: bytes, now: dt.datetime, last_ms: int) -> None:
         path, lines = self._current_file(now)
         if path is None:
             self.events.mkdir(parents=True, exist_ok=True)
@@ -125,7 +133,8 @@ class Writer:
         _append(path, line)
         lines += 1
         # Leave the store ready for the next writer: a file that is due is rolled now.
-        self._save_state(None if self._due(path, lines, now) else {"file": path.name, "lines": lines})
+        current = None if self._due(path, lines, now) else {"file": path.name, "lines": lines}
+        self._save_state(current, last_ms)
 
     def _current_file(self, now: dt.datetime) -> tuple[Path | None, int]:
         """The file this machine appends to and its line count, or None to start one."""
@@ -151,21 +160,27 @@ class Writer:
 
     def _load_state(self) -> dict | None:
         """This machine's current file, or None when there is none it can trust."""
-        try:
-            state = json.loads(self._state_path.read_text("utf-8"))
-        except (FileNotFoundError, ValueError):
-            return None
-        if (
-            not isinstance(state, dict)
-            or state.get("event_store") != str(self.event_store)
-            or not is_event_file(state.get("file") or "")
-            or not isinstance(state.get("lines"), int)
-        ):
+        state = self._read_state()
+        if not is_event_file(state.get("file") or "") or not isinstance(state.get("lines"), int):
             return None
         return state
 
-    def _save_state(self, current: dict | None) -> None:
-        state = {"event_store": str(self.event_store), **(current or {})}
+    def _last_ms(self) -> int:
+        """The time of the last id this machine wrote here, or -1."""
+        last = self._read_state().get("last_ms")
+        return last if isinstance(last, int) else -1
+
+    def _read_state(self) -> dict:
+        try:
+            state = json.loads(self._state_path.read_text("utf-8"))
+        except (FileNotFoundError, ValueError):
+            return {}
+        if not isinstance(state, dict) or state.get("event_store") != str(self.event_store):
+            return {}
+        return state
+
+    def _save_state(self, current: dict | None, last_ms: int) -> None:
+        state = {"event_store": str(self.event_store), "last_ms": last_ms, **(current or {})}
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         temp = self._state_path.with_suffix(".tmp")
         temp.write_text(json.dumps(state), "utf-8")
