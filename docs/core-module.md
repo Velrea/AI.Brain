@@ -1,6 +1,6 @@
 # The core module
 
-The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent reaches them only through the MCP server, which calls this package. Reading goes through [a local index](#the-local-index) each machine builds from the files and keeps for itself. The tests in [`tests/`](../tests/) drive it directly, with no server.
+The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent reaches them only through [the MCP server](mcp-server.md), which calls this package. Reading goes through [a local index](#the-local-index) each machine builds from the files and keeps for itself. The tests in [`tests/`](../tests/) drive it directly, with no server.
 
 A Brain is an append-only log of events. It holds events, never current state; how things stand now is worked out by reading the events in order. A record is never edited, and a correction is a new record.
 
@@ -12,6 +12,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
 | [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id, and resolving names to [entities](#entities). It reads through the index and imports the file format, never the write path. |
 | [`entries.py`](../plugin/brain/entries.py) | One write method per supported type, over `write_entry`, and `revise_journal`. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
+| [`documents.py`](../plugin/brain/documents.py) | The [documents store](#documents): copies of original files, filed beside the events. |
 
 ## Folders
 
@@ -20,6 +21,8 @@ A Brain is an append-only log of events. It holds events, never current state; h
   events/
     h-0199a8c4-….jsonl         sealed: its machine has moved on
     h-0199f02e-….jsonl         open: its machine appends here
+  documents/                   the filed documents
+    car/2026-09-14 invoice.pdf
 
 <plugin data folder>/          this machine's own, never synced
   <key>.lock                   the lock file
@@ -157,3 +160,11 @@ A snapshot needs no read of its own. A caller finds the latest one for a questio
 A record that syncs later than the reach-back is missed, and so is a record the model misread when folding. Both are accepted: a machine with no connection cannot reach the model to record anything, so a long delay is rare, and any store kept in step by a sync service has the same gap. Either is fixed the same way, by building the snapshot afresh from every matching entry and writing a new one.
 
 Nothing extracts facts, such as a current dose, when an entry is written. Extracting them would need every future question anticipated, and a fact extracted wrong is trusted silently. Entities find every entry on a subject without knowing the question, and a snapshot caches an expensive answer for a question actually asked.
+
+## Documents
+
+The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `car/2026-09-14 oil change invoice.pdf`, and returns the path and the copy's `sha256`; the original is left where it is. An entry names a document it is about by both.
+
+- **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there raises `DocumentError`, so a pointer to a document never comes to point at something else.
+- **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.
+- **Paths are plain.** A path is relative, with `/` between folders, and no name in it is empty, `.` or `..`, ends in a dot or a space, holds a character Windows forbids, or is a name Windows keeps for a device, so a document filed on one machine can be synced to any other.

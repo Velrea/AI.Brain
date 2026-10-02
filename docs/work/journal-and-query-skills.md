@@ -2,7 +2,7 @@
 
 Capture and retrieval take judgment the tools cannot hold: what deserves an entry, what to ask first, how the body reads, and how entries fold into an answer. The skills keep that judgment and how to use the tools well; nothing a tool enforces stays in a skill.
 
-The skills carry the long guidance, more than a tool's description should hold; [the MCP server](mcp-server-and-launcher.md) carries the rules, and the skills call its tools.
+The skills carry the long guidance, more than a tool's description should hold; [the MCP server](../mcp-server.md) carries the rules, and the skills call its tools.
 
 ## Decided
 
@@ -17,7 +17,3 @@ The skills carry the long guidance, more than a tool's description should hold; 
 - `journal` asks follow-up questions until the account is complete, matches the layout of the newest similar entry, and writes through `write_journal`.
 - `query` searches, reads, and folds entries into an answer, and offers a snapshot when a fold was expensive.
 - Neither skill does anything a tool already enforces.
-
-## Depends on
-
-- [The MCP server and the launcher](mcp-server-and-launcher.md)

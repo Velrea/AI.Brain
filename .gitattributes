@@ -1,0 +1,3 @@
+# The launch scripts must keep their line endings wherever they are checked out.
+plugin/scripts/brain text eol=lf
+plugin/scripts/*.cmd text eol=crlf

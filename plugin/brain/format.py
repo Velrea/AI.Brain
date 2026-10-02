@@ -13,6 +13,8 @@ from pathlib import Path
 
 EVENTS_DIR = "events"
 """The one flat folder, inside the Brain folder, that holds every event file."""
+DOCUMENTS_DIR = "documents"
+"""The folder, beside `events/`, that holds the filed documents."""
 
 _UUID7 = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _FILE_NAME = re.compile(rf"^h-(?P<id>{_UUID7})\.jsonl$")
@@ -36,6 +38,10 @@ class RecordError(ValueError):
 
 def events_dir(brain_dir: Path) -> Path:
     return Path(brain_dir) / EVENTS_DIR
+
+
+def documents_dir(brain_dir: Path) -> Path:
+    return Path(brain_dir) / DOCUMENTS_DIR
 
 
 def brain_key(brain_dir: Path) -> str:
