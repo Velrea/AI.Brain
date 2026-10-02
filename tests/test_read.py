@@ -1,5 +1,6 @@
 import datetime as dt
 
+from brain.entries import Entries
 from brain.write import Writer
 
 from conftest import entry, event_files, lines_of
@@ -94,3 +95,84 @@ def test_a_record_in_two_files_is_returned_once(writer, other_machine, reader, s
 
     assert [hit.id for hit in reader.search("oil").hits] == [copied]
     assert [record["id"] for record in reader.read([copied])] == [copied]
+
+
+def test_search_finds_entries_by_the_pattern_or_the_entities_they_name(writer, entries, reader):
+    entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
+    entries.write_journal(
+        event_date="2026-01-01", description="Started Zorblax", body="Two drops.", entities=["zorblax"],
+    )
+    # Named, but never says the word: found only by its entity.
+    # Written beneath the journal method, which would refuse the unrecorded dr-jekyll:
+    # an entry from before that check, or a slug whose entity has not synced yet.
+    writer.write_entry(**entry(
+        event_date="2026-02-01", description="Doubled the dose", body="Four drops now.",
+        details={"entities": ["zorblax", "dr-jekyll"]},
+    ))
+    # Says the word, but its entities were missed: found only by its text.
+    entries.write_journal(event_date="2026-03-01", description="Zorblax refill", body="Collected.")
+    writer.write_entry(**entry(event_date="2026-04-01", description="Oil change", body="Done.",
+                               details={"entities": ["car"]}))
+
+    def found(pattern=None, **filters):
+        return [hit.description for hit in reader.search(pattern, **filters).hits]
+
+    # The entity itself is a hit too, dated the day it was stated.
+    assert found(entities=["zorblax"]) == ["Started Zorblax", "Doubled the dose", "Zorblax"]
+    assert found("zorblax", entities=["zorblax"]) == [
+        "Started Zorblax", "Doubled the dose", "Zorblax refill", "Zorblax",
+    ]
+    assert found(entities=["dr-jekyll", "car"]) == ["Doubled the dose", "Oil change"]
+    assert found("zorblax", entities=["zorblax"], types=["journal"], event_date_to="2026-02-28") == [
+        "Started Zorblax", "Doubled the dose",
+    ]
+    assert found(entities=[]) == []
+
+
+def test_resolve_returns_the_likely_entities_for_each_name_and_no_others(entries, reader):
+    entries.write_entity(
+        slug="dr-jekyll", name="Dr. Jekyll", kind="person", aliases=["Dr. J"], body="The physician.",
+    )
+    entries.write_entity(slug="mr-hyde", name="Mr. Hyde", kind="person", body="Unrelated.")
+    entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
+    entries.write_entity(slug="moonberry-extract", name="Moonberry extract", kind="supplement", body="Drops.")
+    entries.write_entity(slug="mom", name="Mom", kind="person", body="My mother.")
+
+    found = reader.resolve(["dr j", "Jekyll", "ZORBLAX", "zorblaxx", "moonberry", "Tom", "glimmerol"])
+
+    def slugs(name):
+        return [entity.slug for entity in found[name]]
+
+    assert slugs("dr j") == ["dr-jekyll"]  # by alias, in any case and punctuation
+    assert slugs("Jekyll") == ["dr-jekyll"]  # held whole as a word
+    assert slugs("ZORBLAX") == slugs("zorblaxx") == ["zorblax"]  # spelled alike
+    assert slugs("moonberry") == ["moonberry-extract"]
+    assert slugs("Tom") == slugs("glimmerol") == []
+    [jekyll] = found["dr j"]
+    assert (jekyll.name, jekyll.kind, jekyll.aliases) == ("Dr. Jekyll", "person", ["Dr. J"])
+    assert reader.resolve([]) == {}
+
+
+def test_an_entity_restated_takes_the_newest_name_and_every_alias(entries, other_machine, reader):
+    entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["ZB"], body="A potion.")
+    # Another machine adds an alias of its own before the two sync.
+    Entries(other_machine, reader).write_entity(
+        slug="zorblax", name="Zorblax", kind="potion", aliases=["the green drops"], body="A potion.",
+    )
+    newest = entries.write_entity(
+        slug="zorblax", name="Zorblax tincture", kind="medication", aliases=["the blue drops"], body="Blue.",
+    )
+
+    [entity] = reader.resolve(["the green drops"])["the green drops"]
+    assert (entity.id, entity.name, entity.kind) == (newest, "Zorblax tincture", "medication")
+    assert entity.aliases == ["ZB", "the blue drops", "the green drops"]
+    assert reader.known_slugs(["zorblax", "glimmerol"]) == {"zorblax"}
+
+
+def test_resolve_keeps_to_its_limit_best_first(entries, reader):
+    for slug in ("dr-jekyll", "dr-jekyll-senior", "dr-lanyon", "dr-who"):
+        entries.write_entity(slug=slug, name=slug.replace("-", " "), kind="person", body="A doctor.")
+
+    assert [e.slug for e in reader.resolve(["dr jekyll"], limit=2)["dr jekyll"]] == [
+        "dr-jekyll", "dr-jekyll-senior",
+    ]

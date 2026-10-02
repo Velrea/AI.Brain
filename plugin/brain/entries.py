@@ -7,22 +7,53 @@ itself. Reading needs no such methods: `Reader` returns every type the same way.
 """
 
 import datetime as dt
+import re
+from collections.abc import Sequence
 
 from .format import RecordError
+from .read import Reader
 from .write import Writer
 
 JOURNAL_VERSION = 1
 SNAPSHOT_VERSION = 1
+ENTITY_VERSION = 1
+
+_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+class UnknownEntities(RecordError):
+    """A journal entry named slugs no entity has been recorded under."""
+
+    def __init__(self, slugs: list[str]):
+        super().__init__(f"no entity is recorded as {', '.join(slugs)}: resolve or write it first")
+        self.slugs = slugs
 
 
 class Entries:
-    def __init__(self, writer: Writer):
+    def __init__(self, writer: Writer, reader: Reader):
         self.writer = writer
+        self.reader = reader
 
     def write_journal(
-        self, *, event_date: str, description: str, body: str, source: str | None = None
+        self,
+        *,
+        event_date: str,
+        description: str,
+        body: str,
+        entities: Sequence[str] = (),
+        source: str | None = None,
     ) -> str:
-        """Records a journal entry: an account of what happened. Returns its id."""
+        """Records a journal entry: an account of what happened. Returns its id.
+
+        `entities` are the slugs of the entities the entry is about, each
+        one an entity already recorded, or UnknownEntities is raised and
+        nothing is written. Entities are never removed, so a slug found
+        here is still there when the entry is written.
+        """
+        entities = _slugs("entities", entities)
+        missing = sorted(set(entities) - self.reader.known_slugs(entities)) if entities else []
+        if missing:
+            raise UnknownEntities(missing)
         return self.writer.write_entry(
             type="journal",
             version=JOURNAL_VERSION,
@@ -30,6 +61,7 @@ class Entries:
             description=description,
             body=body,
             source=source,
+            details={"entities": entities} if entities else {},
         )
 
     def write_snapshot(self, *, scope: str, description: str, body: str) -> str:
@@ -38,8 +70,7 @@ class Entries:
         `scope` is the question's meaning, put so paraphrases land on one
         scope. Written only at the user's word.
         """
-        if not isinstance(scope, str) or not scope.strip() or scope.splitlines() != [scope]:
-            raise RecordError("scope must be one line of non-empty text")
+        _one_line("scope", scope)
         return self.writer.write_entry(
             type="snapshot",
             version=SNAPSHOT_VERSION,
@@ -49,3 +80,61 @@ class Entries:
             body=body,
             details={"scope": scope},
         )
+
+    def write_entity(
+        self,
+        *,
+        slug: str,
+        name: str,
+        kind: str,
+        body: str,
+        aliases: Sequence[str] = (),
+        source: str | None = None,
+    ) -> str:
+        """Records an entity: a person, thing, or topic entries are about. Returns its id.
+
+        Entries name it by `slug`. `name` is what it is called, `kind` what
+        sort of thing it is, such as person or medication, and `aliases` the
+        other names it goes by. Writing a slug already recorded restates
+        that entity: its name, kind, and body become the newest statement's,
+        and its aliases add to those already recorded.
+        """
+        _slug("slug", slug)
+        _one_line("name", name)
+        _one_line("kind", kind)
+        return self.writer.write_entry(
+            type="entity",
+            version=ENTITY_VERSION,
+            # The day it was stated: an entity is restated, never edited.
+            event_date=dt.date.today().isoformat(),
+            description=name,
+            body=body,
+            source=source,
+            details={"slug": slug, "kind": kind, "aliases": _lines("aliases", aliases)},
+        )
+
+
+def _one_line(name: str, value: object) -> None:
+    if not isinstance(value, str) or not value.strip() or value.splitlines() != [value]:
+        raise RecordError(f"{name} must be one line of non-empty text")
+
+
+def _slug(name: str, value: object) -> None:
+    if not isinstance(value, str) or _SLUG.fullmatch(value) is None:
+        raise RecordError(f"{name} must be a slug, such as dr-jekyll: {value!r}")
+
+
+def _lines(name: str, values: object) -> list[str]:
+    """Each value checked as one line of text, once each, in the order given."""
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise RecordError(f"{name} must be a list")
+    for value in values:
+        _one_line(name, value)
+    return list(dict.fromkeys(values))
+
+
+def _slugs(name: str, values: object) -> list[str]:
+    values = _lines(name, values)
+    for value in values:
+        _slug(name, value)
+    return values
