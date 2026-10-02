@@ -2,10 +2,10 @@
 
 Concerns reading.
 
-Full-text and meaning-based search over the Brain.
+Meaning-based search over the Brain, beside the full-text search the local index brings.
 
-- **Indexes live on DuckDB tables, not on views over files.** The full-text index is rebuilt whole when entries arrive; the vector index must fit in memory.
-- **Embeddings are computed on the read side and stored** in an `embeddings/` folder keyed by entry id and model, so no process or machine computes one twice. One Brain keeps one embedding model.
-- **A shared read service** on `localhost`, started by the plugin on the first query and stopped when idle, replaces a DuckDB per session once full-text rebuilds or embedding loads become noticeable. Writes stay in each session's own process. DuckDB lets only one process open a database file for writing, which is why a persisted DuckDB file waits for this service.
+- **Vectors live in the local index**, beside the full-text index, and are searched there.
+- **Embeddings are computed on the read side and kept outside the disposable index**, keyed by a hash of the text and the model, so rebuilding the index never recomputes one. One Brain keeps one embedding model, and it runs locally: nothing is sent off the machine.
+- **Entities could be resolved by meaning** as well as by name and alias, if resolving by name leaves duplicates. Meaning complements spelling: a model is likely to link `meds` to `medication` and weak on shorthand such as `Dr. J`, which spelling already catches. Verify both on a local model before relying on either.
 
-Open: the embedding model. A local one is free and offline but slower and a download; an API is better but needs a key and costs a little.
+Open: which local embedding model.

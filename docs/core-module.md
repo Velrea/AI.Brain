@@ -8,7 +8,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
 | --- | --- |
 | [`format.py`](../plugin/brain/format.py) | The file format: the record's envelope and its checks, the one-line encoding, the folder layout, and file names. The read side imports it; it imports neither side. |
 | [`write.py`](../plugin/brain/write.py) | `Writer.write_entry`, the one generic write. |
-| [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id. It imports the file format, never the write path. |
+| [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id, and resolving names to [entities](#entities). It imports the file format, never the write path. |
 | [`entries.py`](../plugin/brain/entries.py) | One write method per supported type, over `write_entry`. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
 
@@ -54,7 +54,7 @@ A record carries no writer and no position: its `id` lets it stand alone whereve
 
 ## Writing
 
-A caller writes through a type's method, such as `Entries.write_journal`, which takes only that type's fields, fixes its `type` and `version`, and calls `Writer.write_entry`. The MCP server exposes the type methods, never `write_entry`. The types so far are `journal` and [`snapshot`](#snapshots).
+A caller writes through a type's method, such as `Entries.write_journal`, which takes only that type's fields, fixes its `type` and `version`, and calls `Writer.write_entry`. The MCP server exposes the type methods, never `write_entry`. The types so far are `journal`, [`entity`](#entities), and [`snapshot`](#snapshots). A journal entry names the entities it is about, by slug, in `details.entities`, and `write_journal` refuses a slug no entity has been recorded under, with `UnknownEntities`, so an entry never names a subject nothing can resolve. Entities are never removed, so the check, made before the lock, cannot go stale.
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ The Brain relies on the sync service to carry files between machines and does no
 
 ## Reading
 
-Writing is typed and reading is not. A type's write method controls the shape of what is recorded, so a caller never builds a record by hand; reading needs no such control, so `Reader` finds and returns entries of every type the same way, and the caller interprets what comes back by its type. Two calls cover it: `search` finds, `read` returns. They carry the mechanics of the files, so a caller needs only to know what to ask.
+Writing is typed and reading is not. A type's write method controls the shape of what is recorded, so a caller never builds a record by hand; reading needs no such control, so `Reader` finds and returns entries of every type the same way, and the caller interprets what comes back by its type. Two calls cover it: `search` finds, `read` returns. Only `resolve`, which turns names into [entities](#entities), knows a type. They carry the mechanics of the files, so a caller needs only to know what to ask.
 
 Every call reads every file afresh, through DuckDB's JSON reader, where the files lie: there is no index and no second copy, so a machine that has gone quiet can come back and its records are simply there. Each call opens its own in-memory DuckDB and closes it, so no database file is ever written. Reading never writes; a snapshot is written through the write path like any entry.
 
@@ -95,10 +95,26 @@ flowchart LR
 - **Bad lines.** A line that is not valid JSON, a torn last line among them, or that lacks a field of the envelope is skipped, never reported as an error. A last line that is whole JSON but not yet ended by its newline is read; the writer ends it before its next append.
 - **Each id once.** A line copied into two files is the same record and is returned once. The copies are identical, so any one is kept, and the filters run first so only the matches are checked for copies.
 - **Order is `event_date`**, then `id` to break ties, never `recorded_at` or file position: records from different files interleave only by what they say.
-- **`search`** matches a pattern, a regular expression as grep takes, in any case, against the description and body of every type. It filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, and by exact `details` fields. It returns one page of lean hits, oldest first unless asked for newest first: each hit's id, type, event date, recorded time, description, and a snippet of about 160 characters around the first match in the body, with the total across every page. A caller reads the hits and asks for full text only where it needs it.
+- **`search`** matches a pattern, a regular expression as grep takes, in any case, against the description and body of every type, or [entities](#entities) by slug, or both. It filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, and by exact `details` fields. It returns one page of lean hits, oldest first unless asked for newest first: each hit's id, type, event date, recorded time, description, and a snippet of about 160 characters around the first match in the body, with the total across every page. A caller reads the hits and asks for full text only where it needs it.
 - **`read`** returns the full records for a list of ids in one call, as objects in the envelope's shape with `details` parsed, in event-date order. An id not found is left out.
 
 With 200,000 records in 20 files, a search with a pattern takes about 50 ms and a read about 40 ms.
+
+### Entities
+
+An entity is a person, thing, or topic entries are about, such as `dr-jekyll`, `zorblax`, or `mom`. Searching text cannot promise every entry on a subject: an entry that says "two drops of Moonberry extract with breakfast" never says "medication". Naming an entry's entities when it is written moves that judgment to the moment a model looks at one entry with its whole attention, and a search by entity then returns the whole set in one call. Over a fictional decade of entries, three models asked which medications were current missed or misstated one with text search alone, and all three answered fully searching by subject.
+
+An entity is an entry of type `entity`, written through `Entries.write_entity`, never a list kept beside the log: a list of every subject loaded on every write costs tokens that grow with the vocabulary, while entities in the log are queried, so only the likely matches come back. Its description is its name, its body says what it is, and its `details` carry its `slug`, its `kind`, such as `person` or `medication`, and its `aliases`, the other names it goes by. Entries name it by slug. A record is never edited, so writing a slug again restates the entity, with its event date the day it was stated. Its name, kind, and body are the newest statement's, by event date and then id, and its aliases are every statement's: two machines that each add an alias before they sync lose neither, and a machine that has not yet seen an entity and records it again only adds to it.
+
+```json
+{"type":"entity","description":"Dr. Jekyll","body":"The family physician.",
+ "details":{"slug":"dr-jekyll","kind":"person","aliases":["Dr. J"]}, …}
+```
+
+- **`resolve`** takes a list of names and returns, for each, up to five likely entities, best first, as each holds now: id, slug, name, kind, and aliases. A name is compared with an entity's slug, name, and aliases in any case, with punctuation and hyphens read as spaces. The same is the best match, then one held whole in the other as words, such as `jekyll` in `dr jekyll`, then one spelled alike by Jaro-Winkler similarity of at least 0.8. A name with nothing likely gets none. A writer passes every subject it finds in an entry, reuses an entity that matches, and creates one only when none does, so a subject is recorded once. Shorthand that spells nothing like the name, such as `meds` for `medication`, is found only through an alias.
+- **Search by entity** returns the entries that name any of the slugs, and the entities themselves. Given a pattern as well, an entry is a hit when either finds it: requiring both would lose an entry whose entities were missed when it was written.
+
+With 2,000 entities among 200,000 records, resolving ten names takes about 70 ms.
 
 ### Snapshots
 

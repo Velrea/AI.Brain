@@ -78,5 +78,5 @@ def reader(store: Path) -> Reader:
 
 
 @pytest.fixture
-def entries(writer: Writer) -> Entries:
-    return Entries(writer)
+def entries(writer: Writer, reader: Reader) -> Entries:
+    return Entries(writer, reader)

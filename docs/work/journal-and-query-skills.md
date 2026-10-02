@@ -8,7 +8,7 @@ The skills carry the long guidance, more than a tool's description should hold; 
 
 - `journal`: listen, ask follow-up questions until the account is complete, check the newest similar entry and match its layout, then write. It also records a life event unprompted when one surfaces in conversation.
 - `query`: search, read, and fold entries into an answer, offering a snapshot when a fold was expensive.
-- **Both skills teach the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully. `journal` identifies an entry's [entities](entities.md) and resolves them before writing; `query` resolves the question's subjects first, then runs one search by those entities plus a pattern for wording they might miss.
+- **Both skills teach the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully. `journal` identifies an entry's [entities](../core-module.md#entities) and resolves them before writing; `query` resolves the question's subjects first, then runs one search by those entities plus a pattern for wording they might miss.
 
 ## Done when
 
