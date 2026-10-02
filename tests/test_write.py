@@ -22,12 +22,12 @@ class Clock:
         return self.now
 
 
-def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, store):
+def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, brain_dir):
     details = {"odometer": 48210, "parts": ["oil", "filter"]}
     full_id = writer.write_entry(**entry(source="voice", details=details))
     bare_id = writer.write_entry(**entry())
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     full, bare = records_of(path)
     assert list(full) == list(FIELDS)
     assert full["id"] == full_id and uuid.UUID(full_id).version == 7
@@ -44,25 +44,25 @@ def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, store):
     ids=["blank description", "text that is not valid Unicode", "an original with no body",
          "a revision naming no entry"],
 )
-def test_a_rejected_entry_writes_nothing(writer, store, overrides):
+def test_a_rejected_entry_writes_nothing(writer, brain_dir, overrides):
     with pytest.raises(RecordError):
         writer.write_entry(**entry(**overrides))
-    assert event_files(store) == []
+    assert event_files(brain_dir) == []
 
 
-def test_ids_order_as_written_even_within_one_millisecond(store, state):
+def test_ids_order_as_written_even_within_one_millisecond(brain_dir, data_dir):
     clock = Clock()
-    ids = [Writer(store, state, clock=clock).write_entry(**entry()) for _ in range(3)]
-    writer = Writer(store, state, clock=clock)
+    ids = [Writer(brain_dir, data_dir, clock=clock).write_entry(**entry()) for _ in range(3)]
+    writer = Writer(brain_dir, data_dir, clock=clock)
     ids += [writer.write_entry(**entry()) for _ in range(30)]
 
     assert ids == sorted(ids)
     assert len(set(ids)) == len(ids)
 
 
-def test_a_torn_last_line_is_ended_before_the_next_append(writer, store):
+def test_a_torn_last_line_is_ended_before_the_next_append(writer, brain_dir):
     writer.write_entry(**entry(description="first"))
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     with open(path, "ab") as file:
         file.write(b'{"id":"0199a8c4-torn","type":"jou')
 
@@ -74,68 +74,68 @@ def test_a_torn_last_line_is_ended_before_the_next_append(writer, store):
     assert json.loads(after)["description"] == "after"
 
 
-def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, store, monkeypatch):
+def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, brain_dir, monkeypatch):
     monkeypatch.setattr(brain.write, "ROLL_LINES", 3)
     for n in range(7):
         writer.write_entry(**entry(description=f"entry {n}"))
 
-    assert sorted(len(records_of(f)) for f in event_files(store)) == [1, 3, 3]
+    assert sorted(len(records_of(f)) for f in event_files(brain_dir)) == [1, 3, 3]
 
 
-def test_a_file_seven_days_old_is_left_for_a_new_one(store, state):
+def test_a_file_seven_days_old_is_left_for_a_new_one(brain_dir, data_dir):
     clock = Clock()
-    writer = Writer(store, state, clock=clock)
+    writer = Writer(brain_dir, data_dir, clock=clock)
     writer.write_entry(**entry(description="day 0"))
     clock.now = T0 + dt.timedelta(days=6, hours=23)
     writer.write_entry(**entry(description="day 6"))
     clock.now = T0 + dt.timedelta(days=7)
     writer.write_entry(**entry(description="day 7"))
 
-    old, new = event_files(store)
+    old, new = event_files(brain_dir)
     assert [r["description"] for r in records_of(old)] == ["day 0", "day 6"]
     assert [r["description"] for r in records_of(new)] == ["day 7"]
     assert file_created_at(new.name) == clock.now
 
 
-def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, store):
+def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, brain_dir):
     writer.write_entry(**entry())
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     path.unlink()
 
     writer.write_entry(**entry(description="after"))
 
-    [new] = event_files(store)
+    [new] = event_files(brain_dir)
     assert new != path
     assert [r["description"] for r in records_of(new)] == ["after"]
 
 
-def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, store, state):
+def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, brain_dir, data_dir):
     writer.write_entry(**entry(description="before"))
-    [path] = event_files(store)
-    for file in state.glob("*.json"):
+    [path] = event_files(brain_dir)
+    for file in data_dir.glob("*.json"):
         file.unlink()
 
     writer.write_entry(**entry(description="after"))
 
     assert [r["description"] for r in records_of(path)] == ["before"]
-    [new] = [f for f in event_files(store) if f != path]
+    [new] = [f for f in event_files(brain_dir) if f != path]
     assert [r["description"] for r in records_of(new)] == ["after"]
 
 
-def test_a_machine_never_appends_to_a_file_it_did_not_create(store, tmp_path):
-    Writer(store, tmp_path / "machine a").write_entry(**entry(description="a"))
-    Writer(store, tmp_path / "machine b").write_entry(**entry(description="b"))
-    Writer(store, tmp_path / "machine a").write_entry(**entry(description="a again"))
+def test_a_machine_never_appends_to_a_file_it_did_not_create(brain_dir, tmp_path):
+    Writer(brain_dir, tmp_path / "machine a").write_entry(**entry(description="a"))
+    Writer(brain_dir, tmp_path / "machine b").write_entry(**entry(description="b"))
+    Writer(brain_dir, tmp_path / "machine a").write_entry(**entry(description="a again"))
 
-    by_file = sorted([r["description"] for r in records_of(path)] for path in event_files(store))
+    by_file = sorted([r["description"] for r in records_of(path)] for path in event_files(brain_dir))
     assert by_file == [["a", "a again"], ["b"]]
 
 
-def test_two_brains_on_one_machine_keep_separate_state(tmp_path, state):
+def test_two_brains_on_one_machine_keep_separate_state(tmp_path, data_dir):
     first, second = tmp_path / "first", tmp_path / "second"
-    Writer(first, state).write_entry(**entry(description="first"))
-    Writer(second, state).write_entry(**entry(description="second"))
-    Writer(first, state).write_entry(**entry(description="first again"))
+    Writer(first, data_dir).write_entry(**entry(description="first"))
+    Writer(second, data_dir).write_entry(**entry(description="second"))
+    Writer(first, data_dir).write_entry(**entry(description="first again"))
 
     [path] = event_files(first)
     assert [r["description"] for r in records_of(path)] == ["first", "first again"]
@@ -144,22 +144,22 @@ def test_two_brains_on_one_machine_keep_separate_state(tmp_path, state):
 WRITE_MANY = """
 import sys
 from brain.write import Writer
-store, state, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-writer = Writer(store, state)
+brain_dir, data_dir, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+writer = Writer(brain_dir, data_dir)
 for n in range(count):
     writer.write_entry(type="journal", version=1, event_date="2026-09-14",
                        description=f"{name} {n}", body=name * 5000)
 """
 
 
-def test_concurrent_sessions_append_whole_lines(store, state):
+def test_concurrent_sessions_append_whole_lines(brain_dir, data_dir):
     sessions, count = 6, 25
-    procs = [python(WRITE_MANY, str(store), str(state), f"s{i}", str(count)) for i in range(sessions)]
+    procs = [python(WRITE_MANY, str(brain_dir), str(data_dir), f"s{i}", str(count)) for i in range(sessions)]
     for proc in procs:
         _, err = proc.communicate(timeout=120)
         assert proc.returncode == 0, err
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     records = records_of(path)
     assert len(records) == sessions * count
     for i in range(sessions):

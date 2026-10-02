@@ -92,11 +92,11 @@ class Entity:
 
 
 class Reader:
-    """Reads one event store through this machine's index of it, kept in
-    `state_dir`. Order is by event date, never by file or position."""
+    """Reads one Brain folder through this machine's index of it, kept in
+    `data_dir`. Order is by event date, never by file or position."""
 
-    def __init__(self, event_store: Path, state_dir: Path):
-        self.index = Index(event_store, state_dir)
+    def __init__(self, brain_dir: Path, data_dir: Path):
+        self.index = Index(brain_dir, data_dir)
 
     def search(
         self,

@@ -8,25 +8,25 @@ from brain.format import RecordError
 from conftest import event_files, records_of
 
 
-def test_a_journal_is_written_as_a_version_1_journal_with_no_details(entries, store):
+def test_a_journal_is_written_as_a_version_1_journal_with_no_details(entries, brain_dir):
     entry_id = entries.write_journal(
         event_date="2026-09-14", description="Oil change", body="Oil and filter changed."
     )
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     [record] = records_of(path)
     assert record["id"] == entry_id
     assert (record["type"], record["version"], record["details"]) == ("journal", 1, {})
 
 
-def test_a_snapshot_is_written_on_the_day_taken_with_its_scope(entries, store):
+def test_a_snapshot_is_written_on_the_day_taken_with_its_scope(entries, brain_dir):
     entry_id = entries.write_snapshot(
         scope="current potions", description="Current potions", body="Zorblax, two drops."
     )
     with pytest.raises(RecordError):
         entries.write_snapshot(scope=" ", description="Blank scope", body="Nothing.")
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     [record] = records_of(path)
     assert record["id"] == entry_id
     assert (record["type"], record["version"]) == ("snapshot", 1)
@@ -34,7 +34,7 @@ def test_a_snapshot_is_written_on_the_day_taken_with_its_scope(entries, store):
     assert record["details"] == {"scope": "current potions"}
 
 
-def test_a_journal_names_its_entities_once_each_by_slug(entries, store):
+def test_a_journal_names_its_entities_once_each_by_slug(entries, brain_dir):
     for slug in ("zorblax", "dr-jekyll"):
         entries.write_entity(slug=slug, name=slug, kind="thing", body="Recorded.")
     entries.write_journal(
@@ -45,12 +45,12 @@ def test_a_journal_names_its_entities_once_each_by_slug(entries, store):
         with pytest.raises(RecordError):
             entries.write_journal(event_date="2026-09-14", description="Bad", body="Bad.", entities=bad)
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     *_, record = records_of(path)
     assert record["details"] == {"entities": ["zorblax", "dr-jekyll"]}
 
 
-def test_a_journal_naming_an_unrecorded_entity_is_refused(entries, store):
+def test_a_journal_naming_an_unrecorded_entity_is_refused(entries, brain_dir):
     entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
 
     with pytest.raises(UnknownEntities) as refused:
@@ -60,11 +60,11 @@ def test_a_journal_naming_an_unrecorded_entity_is_refused(entries, store):
         )
 
     assert refused.value.slugs == ["dr-jekyll", "mr-hyde"]
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     assert [record["type"] for record in records_of(path)] == ["entity"]  # nothing written
 
 
-def test_an_entity_is_written_through_its_own_method(entries, store):
+def test_an_entity_is_written_through_its_own_method(entries, brain_dir):
     entity_id = entries.write_entity(
         slug="dr-jekyll", name="Dr. Jekyll", kind="person", aliases=["Dr. J", "Henry"],
         body="The family physician.",
@@ -75,7 +75,7 @@ def test_an_entity_is_written_through_its_own_method(entries, store):
                 "slug": "dr-jekyll", "name": "Dr. Jekyll", "kind": "person", "body": "Bad.", **bad,
             })
 
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     [record] = records_of(path)
     assert record["id"] == entity_id
     assert (record["type"], record["version"], record["description"]) == ("entity", 1, "Dr. Jekyll")

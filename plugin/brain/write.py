@@ -1,8 +1,8 @@
 """The write path: validates a record, stamps it, and appends it as one line.
 
-Only this module writes the event store. Each machine appends only to files
+Only this module writes the event files. Each machine appends only to files
 it created, and sessions on one machine take turns through a lock in the
-machine's state folder, outside the synced folders.
+machine's plugin data folder, outside the synced folders.
 """
 
 import datetime as dt
@@ -13,13 +13,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .format import (
+    brain_key,
     check_entry,
     encode,
     events_dir,
     file_created_at,
     is_event_file,
     new_file_name,
-    state_key,
     uuid7,
     uuid7_ms,
 )
@@ -44,29 +44,29 @@ def utc_now() -> dt.datetime:
 
 
 class Writer:
-    """Appends records to one event store from this machine.
+    """Appends records to one Brain folder from this machine.
 
-    `state_dir` is this machine's own folder, never a synced one: the
+    `data_dir` is this machine's own folder, never a synced one: the
     plugin's data folder. It holds the lock file and the name of the file
     this machine appends to.
     """
 
     def __init__(
         self,
-        event_store: Path,
-        state_dir: Path,
+        brain_dir: Path,
+        data_dir: Path,
         *,
         lock_timeout: float = LOCK_TIMEOUT,
         append_retry: float = APPEND_RETRY,
         clock: Callable[[], dt.datetime] = utc_now,
     ):
-        self.event_store = Path(event_store).resolve()
-        self.events = events_dir(self.event_store)
+        self.brain_dir = Path(brain_dir).resolve()
+        self.events = events_dir(self.brain_dir)
         self.append_retry = append_retry
         self.clock = clock
-        key = state_key(self.event_store)
-        self._state_path = Path(state_dir) / f"{key}.json"
-        self._lock = FileLock(Path(state_dir) / f"{key}.lock", lock_timeout)
+        key = brain_key(self.brain_dir)
+        self._state_path = Path(data_dir) / f"{key}.json"
+        self._lock = FileLock(Path(data_dir) / f"{key}.lock", lock_timeout)
 
     def write_entry(
         self,
@@ -175,12 +175,12 @@ class Writer:
             state = json.loads(self._state_path.read_text("utf-8"))
         except (FileNotFoundError, ValueError):
             return {}
-        if not isinstance(state, dict) or state.get("event_store") != str(self.event_store):
+        if not isinstance(state, dict) or state.get("brain_dir") != str(self.brain_dir):
             return {}
         return state
 
     def _save_state(self, current: dict | None, last_ms: int) -> None:
-        state = {"event_store": str(self.event_store), "last_ms": last_ms, **(current or {})}
+        state = {"brain_dir": str(self.brain_dir), "last_ms": last_ms, **(current or {})}
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         temp = self._state_path.with_suffix(".tmp")
         temp.write_text(json.dumps(state), "utf-8")

@@ -23,8 +23,8 @@ def hold_lock(path, seconds):
     return proc
 
 
-def test_a_session_that_cannot_take_the_lock_gets_an_error(store, state):
-    writer = Writer(store, state, lock_timeout=0.5)
+def test_a_session_that_cannot_take_the_lock_gets_an_error(brain_dir, data_dir):
+    writer = Writer(brain_dir, data_dir, lock_timeout=0.5)
     writer.write_entry(**entry())
     holder = hold_lock(writer._lock.path, 30)
     try:
@@ -35,22 +35,22 @@ def test_a_session_that_cannot_take_the_lock_gets_an_error(store, state):
     finally:
         holder.kill()
         holder.wait()
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     assert len(records_of(path)) == 1
 
 
-def test_a_session_waits_while_the_lock_is_held_briefly(store, state):
-    writer = Writer(store, state, lock_timeout=10)
+def test_a_session_waits_while_the_lock_is_held_briefly(brain_dir, data_dir):
+    writer = Writer(brain_dir, data_dir, lock_timeout=10)
     holder = hold_lock(writer._lock.path, 0.5)
     try:
         writer.write_entry(**entry())
     finally:
         holder.wait()
-    assert len(event_files(store)) == 1
+    assert len(event_files(brain_dir)) == 1
 
 
-def test_a_process_that_dies_holding_the_lock_blocks_nothing(store, state):
-    writer = Writer(store, state, lock_timeout=2)
+def test_a_process_that_dies_holding_the_lock_blocks_nothing(brain_dir, data_dir):
+    writer = Writer(brain_dir, data_dir, lock_timeout=2)
     holder = hold_lock(writer._lock.path, 60)
     holder.kill()
     holder.wait()
@@ -58,7 +58,7 @@ def test_a_process_that_dies_holding_the_lock_blocks_nothing(store, state):
     writer.write_entry(**entry())
 
     assert writer._lock.path.exists()
-    assert len(event_files(store)) == 1
+    assert len(event_files(brain_dir)) == 1
 
 
 windows_only = pytest.mark.skipif(
@@ -67,11 +67,11 @@ windows_only = pytest.mark.skipif(
 
 
 @windows_only
-def test_an_append_blocked_by_another_process_retries_until_released(store, state):
+def test_an_append_blocked_by_another_process_retries_until_released(brain_dir, data_dir):
     """The sync service stands in as a process that holds the file open and shares nothing."""
-    writer = Writer(store, state)
+    writer = Writer(brain_dir, data_dir)
     writer.write_entry(**entry(description="first"))
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     holder = hold_exclusively(path, 1.0)
     try:
         started = time.monotonic()
@@ -83,10 +83,10 @@ def test_an_append_blocked_by_another_process_retries_until_released(store, stat
 
 
 @windows_only
-def test_an_append_blocked_past_the_retries_gets_an_error(store, state):
-    writer = Writer(store, state, append_retry=0.5)
+def test_an_append_blocked_past_the_retries_gets_an_error(brain_dir, data_dir):
+    writer = Writer(brain_dir, data_dir, append_retry=0.5)
     writer.write_entry(**entry(description="first"))
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     holder = hold_exclusively(path, 2)
     try:
         with pytest.raises(AppendBlocked):

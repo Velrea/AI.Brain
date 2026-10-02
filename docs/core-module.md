@@ -16,18 +16,18 @@ A Brain is an append-only log of events. It holds events, never current state; h
 ## Folders
 
 ```
-<event store>/                 synced between machines
+<Brain folder>/                synced between machines
   events/
     h-0199a8c4-….jsonl         sealed: its machine has moved on
     h-0199f02e-….jsonl         open: its machine appends here
 
-<state folder>/                this machine's own, never synced
+<plugin data folder>/          this machine's own, never synced
   <key>.lock                   the lock file
   <key>.json                   the file this machine appends to, its line count, and its last id's time
   <key>.index-v1.sqlite        the local index
 ```
 
-The event store is one flat `events/` folder. Each file is named `h-<uuidv7>.jsonl` for the time it was started, and only the machine that created it ever appends to it. A sync service copies whole files between machines, so two machines appending to one file would each overwrite the other's lines; with one owner per file, that never happens, and no machine is named in the layout. The state folder is never synced: the lock coordinates only this machine, the current file is this machine's alone, and the index is built here from the files. `<key>` is a hash of the event store's path, so two Brains on one machine never share a lock, a current file, or an index. The caller hands the `Writer` and the `Reader` both folders; the MCP server supplies the state folder.
+The Brain folder's events are in one flat `events/` folder. Each file is named `h-<uuidv7>.jsonl` for the time it was started, and only the machine that created it ever appends to it. A sync service copies whole files between machines, so two machines appending to one file would each overwrite the other's lines; with one owner per file, that never happens, and no machine is named in the layout. The plugin data folder is never synced: the lock coordinates only this machine, the current file is this machine's alone, and the index is built here from the files. `<key>` is a hash of the Brain folder's path, so two Brains on one machine never share a lock, a current file, or an index. The caller hands the `Writer` and the `Reader` both folders; the MCP server supplies the plugin data folder.
 
 ## A record
 
@@ -71,8 +71,8 @@ flowchart LR
 ```
 
 - **Checks.** A blank or invalid envelope field, or `details` that is not a JSON object, raises `RecordError`, and nothing is written.
-- **The lock.** An OS lock on the lock file in the state folder, never on a JSONL file: the holder may roll the file, and on Windows a lock on a file's bytes blocks everyone else from reading them. A session waits up to 30 seconds, then gets `LockTimeout`; the lock is held for milliseconds, so a longer wait means something has hung. The OS releases the lock when its process dies, so a crash leaves nothing behind.
-- **This machine's file.** The state names the file and its line count. A file that is gone, or state that is missing or names another store, starts a new file; the machine never resumes a file it did not create.
+- **The lock.** An OS lock on the lock file in the plugin data folder, never on a JSONL file: the holder may roll the file, and on Windows a lock on a file's bytes blocks everyone else from reading them. A session waits up to 30 seconds, then gets `LockTimeout`; the lock is held for milliseconds, so a longer wait means something has hung. The OS releases the lock when its process dies, so a crash leaves nothing behind.
+- **This machine's file.** The `<key>.json` file names the file and its line count. A file that is gone, or a `<key>.json` that is missing or names another Brain folder, starts a new file; the machine never resumes a file it did not create.
 - **A torn last line**, left by a crash mid-append, is ended with a newline before the next append. The fragment is never truncated: cutting bytes from a file the sync service may be copying can lose data.
 - **Rolling.** A file rolls at 10,000 lines or 7 days old, by the time in its name. It is then sealed and never changes again, so a backup or a sync copies it once. The next append starts a new file. When a file rolls carries no meaning for a reader. Small files are never compacted into larger ones: the index reads a sealed file once, so how many there are barely matters to reading, and the sync service uploads a whole file on every change, so small files keep each upload small.
 - **The append** is one unbuffered write, synced to disk before `write_entry` returns.
@@ -86,7 +86,7 @@ Writing is typed and reading is not. A type's write method controls the shape of
 
 ### The local index
 
-Every read comes from a SQLite database this machine keeps in its state folder, built from the files and caught up with them before each read. The files stay the Brain, and the index is a disposable projection of them: it holds nothing they do not, and an index that is missing, corrupt, or built by another version is deleted and rebuilt from them. It makes a read a lookup instead of a scan of every file, and it lets a correction be applied once, when it arrives, instead of on every read. It is never in the synced folders: a sync service copying a database mid-write corrupts it, and two machines would fork it into conflict copies. Reading never writes the event store.
+Every read comes from a SQLite database this machine keeps in its plugin data folder, built from the files and caught up with them before each read. The files stay the Brain, and the index is a disposable projection of them: it holds nothing they do not, and an index that is missing, corrupt, or built by another version is deleted and rebuilt from them. It makes a read a lookup instead of a scan of every file, and it lets a correction be applied once, when it arrives, instead of on every read. It is never in the synced folders: a sync service copying a database mid-write corrupts it, and two machines would fork it into conflict copies. Reading never writes the Brain folder.
 
 ```mermaid
 flowchart LR
