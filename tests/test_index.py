@@ -111,7 +111,14 @@ def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere
     assert (record["description"], [a["body"] for a in record["amendments"]]) == ("Revised", ["Three drops."])
 
 
-def test_two_machines_revising_different_fields_both_hold(entries, elsewhere, reader):
+def test_two_machines_revising_different_fields_both_hold(store, state, tmp_path, reader):
+    # Two machines' ids order only by time, so each write takes a later millisecond.
+    ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(9))
+    entries = Entries(Writer(store, state, clock=lambda: next(ticks)), reader)
+    elsewhere = Entries(
+        Writer(store, tmp_path / "other machine state", clock=lambda: next(ticks)),
+        Reader(store, tmp_path / "other machine state"),
+    )
     original = journal(entries)
     entries.revise_journal(original, description="Ours")
     elsewhere.revise_journal(original, event_date="2026-02-02", amendment="Theirs.")

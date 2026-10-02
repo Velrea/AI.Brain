@@ -175,7 +175,11 @@ def test_resolve_returns_the_likely_entities_for_each_name_and_no_others(entries
     assert reader.resolve([]) == {}
 
 
-def test_an_entity_restated_takes_the_newest_name_and_every_alias(entries, other_machine, reader):
+def test_an_entity_restated_takes_the_newest_name_and_every_alias(store, state, tmp_path, reader):
+    # Two machines' ids order only by time, so each write takes a later millisecond.
+    ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(9))
+    entries = Entries(Writer(store, state, clock=lambda: next(ticks)), reader)
+    other_machine = Writer(store, tmp_path / "other machine state", clock=lambda: next(ticks))
     entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["ZB"], body="A potion.")
     # Another machine adds an alias of its own before the two sync.
     Entries(other_machine, reader).write_entity(
