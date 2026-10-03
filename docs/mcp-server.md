@@ -51,11 +51,13 @@ flowchart LR
 | `write_entity` | records or restates an entity and returns its id |
 | `write_snapshot` | records a folded answer and returns its id |
 | `search` | finds entries of every type by words or entities, type, event date, recorded time, and `details` fields, returning each hit's id, type, event date, recorded time, description, and a snippet: every hit, or a failure telling how to refine a search that finds more than 100 |
-| `read` | returns full records for a list of ids in one call |
+| `read` | returns full records for a list of ids in one call, as Markdown |
 | `resolve` | returns the likely matching entities for each of a list of names |
 | `store_document` | files a copy of a document into `documents/` and returns its path and hash |
 
-Each supported type has a write tool of its own, over the core module's type methods, never the generic write. Each tool returns one JSON object, compact, as its text. Reads are marked read-only, so a host can allow them without asking.
+Each supported type has a write tool of its own, over the core module's type methods, never the generic write. Each tool returns one JSON object, compact, as its text, except `read`. Reads are marked read-only, so a host can allow them without asking.
+
+- **`read` returns Markdown.** The core module keeps every record as JSON; the server translates for the model at this boundary. Each record is a heading of its description, a line of its fields, the entities and documents it names and any other details, then its body on real lines and its amendments under it, with records separated by a line of `---`. A host passes a large result to the model as a file instead of inline, and JSON puts a whole body on one escaped line that a model cannot page through; in testing, a model reading four long entries as JSON spent over a minute slicing that line apart, where as Markdown it read them inline, or with one ordinary read of the file.
 
 A failure the model can put right comes back as an error result carrying the core module's message, which says how: an unknown entity, a bad date or pattern, a search past the ceiling with the ranges to search instead, a document path that is taken, or a lock or file another process held too long. Any other failure is a crash, logged with its traceback, and the model sees only that the tool failed.
 

@@ -46,8 +46,8 @@ _ANTICIPATED = (RecordError, ValueError, LockTimeout, AppendBlocked)
 
 
 def _tool(fn: Callable[..., Any]) -> Callable[..., str]:
-    """Returns the call's result as compact JSON, and an anticipated failure as
-    an error result with its message."""
+    """Returns the call's result as compact JSON, or as it is when it is already
+    text, and an anticipated failure as an error result with its message."""
 
     @functools.wraps(fn)
     def call(*args, **kwargs) -> str:
@@ -55,9 +55,40 @@ def _tool(fn: Callable[..., Any]) -> Callable[..., str]:
             result = fn(*args, **kwargs)
         except _ANTICIPATED as error:
             raise ToolError(str(error)) from error
-        return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 
     return call
+
+
+def render(records: list[dict]) -> str:
+    """Records as Markdown for the model: each a heading and its fields, then its
+    body on real lines. JSON would put a whole body on one escaped line, which a
+    model cannot page through when a host saves a large result to a file."""
+    if not records:
+        return "No record has any of those ids."
+    return "\n\n---\n\n".join(_render(record) for record in records)
+
+
+def _render(record: dict) -> str:
+    details = dict(record["details"])
+    fields = [f"{name}: {record[name]}" for name in ("id", "type", "event_date", "recorded_at", "source") if record.get(name)]
+    lines = [f"# {record['description']}", " | ".join(fields)]
+    if entities := details.pop("entities", None):
+        lines.append("entities: " + ", ".join(entities))
+    for document in details.pop("documents", None) or []:
+        lines.append(f"document: {document['path']} (sha256 {document['sha256']})")
+    for name, value in details.items():
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            value = ", ".join(value)
+        elif not isinstance(value, str):
+            value = json.dumps(value, ensure_ascii=False)
+        lines.append(f"{name}: {value}")
+    text = "\n".join(lines) + "\n\n" + record["body"].strip()
+    if record.get("amendments"):
+        text += "\n\n## Amendments"
+        for amendment in record["amendments"]:
+            text += f"\n\n### {amendment['recorded_at']}\n{amendment['body'].strip()}"
+    return text
 
 
 def build(brain: Path, data: Path) -> MCPServer:
@@ -196,15 +227,19 @@ def build(brain: Path, data: Path) -> MCPServer:
 
     @server.tool(annotations=READS, structured_output=False)
     @_tool
-    def read(ids: list[str]) -> dict:
-        """Returns {"records": [...]}, the full records for a list of ids, in event-date order.
+    def read(ids: list[str]) -> str:
+        """Returns the full records for a list of ids, in event-date order, as Markdown.
 
-        Each is an entry as it stands now, with its revisions applied and its
+        Each record opens with its description as a heading, then a line of its
+        fields (id, type, event_date, recorded_at, source), then the entities and
+        documents it names and any other details, then its body as written. An
+        entry comes as it stands now, with its revisions applied and its
         amendments, oldest first, under a body that is never replaced; an entity
-        as its statements hold it now. A revision's id reads the entry it belongs
-        to. An id not found is left out. Read only the ids a search picked out.
+        as its statements hold it now. Records are separated by a line of ---.
+        A revision's id reads the entry it belongs to. An id not found is left
+        out. Read only the ids a search picked out.
         """
-        return {"records": reader.read(ids)}
+        return render(reader.read(ids))
 
     @server.tool(annotations=READS, structured_output=False)
     @_tool
