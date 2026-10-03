@@ -12,7 +12,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
 | [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id, and resolving names to [entities](#entities). It reads through the index and imports the file format, never the write path. |
 | [`entries.py`](../plugin/brain/entries.py) | One write method per supported type, over `write_entry`, and `revise_journal`. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
-| [`documents.py`](../plugin/brain/documents.py) | The [documents store](#documents): copies of original files, filed beside the events. |
+| [`documents.py`](../plugin/brain/documents.py) | The [documents store](#documents): original files, filed beside the events. |
 
 ## Folders
 
@@ -22,7 +22,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
     h-0199a8c4-….jsonl         sealed: its machine has moved on
     h-0199f02e-….jsonl         open: its machine appends here
   documents/                   the filed documents
-    car/2026-09-14 invoice.pdf
+    assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf
 
 <plugin data folder>/          this machine's own, never synced
   <key>.lock                   the lock file
@@ -115,7 +115,7 @@ flowchart LR
 
 - **Order is `event_date`**, then `id` to break ties, never `recorded_at` or file position: records from different files interleave only by what they say.
 - **`search`** finds words, in any case, in the description, the body, and the amendments of every type, or [entities](#entities) by slug, or both. Every word must appear, in any form of it, so `drop` finds "drops"; a "quoted phrase" must appear as written; a word or phrase ending in `*` matches as a prefix; one starting with `-` must not appear; and `OR` between terms finds either side. Accents are read as plain letters. Each term is quoted before it reaches SQLite's full-text search, so punctuation, as in `Dr. J` or `drop-off`, is never syntax. A pattern with nothing to look for raises `PatternError`. Words are searched through a full-text index rather than matched as regular expressions: SQLite has no fast regular expressions, and one written in Python took about 500 ms over 200,000 entries where a full-text search takes milliseconds.
-- `search` filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, which finds entries recorded or revised after it, and by exact `details` fields. It returns every hit, oldest first unless asked for newest first, each a lean one: its id, type, event date, recorded time, description, and a snippet of about 25 words around the best match in the body or its amendments, or else the first 160 characters of the body. A caller reads the hits, searches again where it needs more, and reads full text only for the ids it picks.
+- `search` filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, which finds entries recorded or revised after it, by exact `details` fields, and by `documents`, the `sha256` of a filed document an entry names. It returns every hit, oldest first unless asked for newest first, each a lean one: its id, type, event date, recorded time, description, and a snippet of about 25 words around the best match in the body or its amendments, or else the first 160 characters of the body. A caller reads the hits, searches again where it needs more, and reads full text only for the ids it picks.
 - **No paging, but a ceiling.** A search that finds more than 100 entries returns none and raises `TooManyHits`, with the total and how to refine it: more words or entities, types or details, more targeted searches, or event-date ranges that each fit within the ceiling. A page invites a caller to stop at the first one, and with results ordered by date the first page is the oldest; with no partial result, a caller never mistakes part of an answer for the whole of it. A hundred lean hits come to about 10,000 tokens.
 - **`read`** returns the full records for a list of ids in one call, as objects in the envelope's shape with `details` parsed and an entry's `amendments` added, in event-date order. A revision's id, or an older statement's, reads the entry it belongs to. An id not found is left out.
 
@@ -163,8 +163,11 @@ Nothing extracts facts, such as a current dose, when an entry is written. Extrac
 
 ## Documents
 
-The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `car/2026-09-14 oil change invoice.pdf`, and returns the path and the copy's `sha256`; the original is left where it is. A journal entry names the documents it is about in `details.documents`, each by both, passed to `write_journal` exactly as `store` returned them, after they are filed, so a pointer never points at nothing.
+The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf`, and returns the path and the copy's `sha256`. Asked to move, it removes the original once the copy is in place, so one copy remains and it is the filed one. A journal entry names the documents it is about in `details.documents`, each by both, passed to `write_journal` exactly as `store` returned them, after they are filed, so a pointer never points at nothing. `Documents.browse` lists one folder at a time, its folders with how many documents each holds and its documents by name, for a caller choosing where a document belongs.
 
 - **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there raises `DocumentError`, so a pointer to a document never comes to point at something else.
+- **A document is filed once.** Given the `Reader`, `store` refuses contents an entry already names, wherever they would be filed, and says where they are and which entry names them; the original stays where it was. It looks them up with `search` by `sha256`, which scans the entries' `details` and takes about 30 ms over 200,000 entries. Contents filed but not yet named by an entry, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
+- **A filed document is never moved.** A move of a file already inside `documents/` is refused, since the entries naming it would point at nothing.
+- **An original that cannot be removed** is reported after the document is filed, with its path and `sha256`, so the entry can still name it.
 - **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.
 - **Paths are plain.** A path is relative, with `/` between folders, and no name in it is empty, `.` or `..`, ends in a dot or a space, holds a character Windows forbids, or is a name Windows keeps for a device, so a document filed on one machine can be synced to any other.

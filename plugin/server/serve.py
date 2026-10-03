@@ -40,6 +40,8 @@ writing or searching by them."""
 
 READS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+# Filing can move a file, removing the original from where it was.
+FILES = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 
 # Failures the model can put right, or retry: each comes back as an error result.
 _ANTICIPATED = (RecordError, ValueError, LockTimeout, AppendBlocked)
@@ -95,7 +97,7 @@ def build(brain: Path, data: Path) -> MCPServer:
     """The server for one Brain folder, keeping this machine's files in `data`."""
     reader = Reader(brain, data)
     entries = Entries(Writer(brain, data), reader)
-    documents = Documents(brain)
+    documents = Documents(brain, reader)
     server = MCPServer("brain", instructions=INSTRUCTIONS)
 
     @server.tool(annotations=WRITES, structured_output=False)
@@ -199,6 +201,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         event_date_to: str | None = None,
         recorded_after: str | None = None,
         details: dict[str, str] | None = None,
+        documents: list[str] | None = None,
         newest_first: bool = False,
     ) -> dict:
         """Finds entries of every type and returns {"hits": [...]}, each hit's id, type,
@@ -214,6 +217,8 @@ def build(brain: Path, data: Path) -> MCPServer:
         types: such as journal, entity, snapshot. event_date_from, event_date_to:
           YYYY-MM-DD, inclusive. recorded_after: a UTC time or date; finds entries
           recorded or revised after it. details: a type's own fields, matched exactly.
+        documents: sha256 hashes; only entries naming a filed document with one
+          of them are hits.
         Hits are in event-date order, oldest first unless newest_first. A search
         that finds more than 100 returns none and fails with how to refine it,
         including event-date ranges that each fit; to cover everything on a
@@ -221,7 +226,8 @@ def build(brain: Path, data: Path) -> MCPServer:
         """
         hits = reader.search(
             pattern, types=types, event_date_from=event_date_from, event_date_to=event_date_to,
-            recorded_after=recorded_after, details=details, entities=entities, newest_first=newest_first,
+            recorded_after=recorded_after, details=details, entities=entities, documents=documents,
+            newest_first=newest_first,
         )
         return {"hits": [asdict(hit) for hit in hits]}
 
@@ -256,19 +262,36 @@ def build(brain: Path, data: Path) -> MCPServer:
         found = reader.resolve(names)
         return {"matches": {name: [asdict(entity) for entity in matches] for name, matches in found.items()}}
 
-    @server.tool(annotations=WRITES, structured_output=False)
+    @server.tool(annotations=FILES, structured_output=False)
     @_tool
-    def store_document(source: str, path: str) -> dict:
-        """Files a copy of a document into the Brain and returns {"path": ..., "sha256": ...}.
+    def store_document(source: str, path: str, move: bool = False) -> dict:
+        """Files a document into the Brain and returns {"path": ..., "sha256": ...}.
 
-        source: the file to copy, a path on this machine. It is left where it is.
+        source: the file to file, a path on this machine.
         path: where it is filed inside the Brain's documents, relative, with /
-          between folders, such as "car/2026-09-14 oil change invoice.pdf".
+          between folders, such as "assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf".
+          Browse with list_documents to fit it beside similar documents.
+        move: true removes the source once the document is filed; false leaves
+          it where it is. A document already in the Brain's documents is never moved.
         Filing the same contents at a path again returns it as it is; a path that
-        already holds other contents is refused. File the document first, then
-        pass what this returns in write_journal's documents.
+        already holds other contents is refused, and so are contents an entry
+        already names, wherever they are filed, with where they are. File the
+        document first, then pass what this returns in write_journal's documents.
         """
-        return documents.store(Path(source), path)
+        return documents.store(Path(source), path, move=move)
+
+    @server.tool(annotations=READS, structured_output=False)
+    @_tool
+    def list_documents(folder: str = "") -> dict:
+        """Lists one folder of the Brain's documents, as {"folders": [...], "documents": [...]}:
+        each folder its name and how many documents it holds at any depth, and
+        each document its file name, in name order.
+
+        folder: relative, with / between folders, such as "assets/blue-hatchback";
+          empty for the top. Browse from the top down to find where similar
+          documents are filed.
+        """
+        return documents.browse(folder)
 
     return server
 

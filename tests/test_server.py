@@ -12,7 +12,10 @@ from mcp.client.session import ClientSession
 from conftest import PLUGIN
 from server.serve import build
 
-TOOLS = {"write_journal", "revise_journal", "write_entity", "write_snapshot", "search", "read", "resolve", "store_document"}
+TOOLS = {
+    "write_journal", "revise_journal", "write_entity", "write_snapshot", "search", "read", "resolve",
+    "store_document", "list_documents",
+}
 
 
 @pytest.fixture
@@ -48,6 +51,8 @@ def test_every_tool_is_listed_with_its_rules(server):
     assert "triage" in tools["write_journal"].description
     assert tools["search"].annotations.read_only_hint is True
     assert tools["write_journal"].annotations.read_only_hint is False
+    assert tools["list_documents"].annotations.read_only_hint is True
+    assert tools["store_document"].annotations.destructive_hint is True
 
 
 def test_an_entry_about_an_entity_is_written_found_and_read(server):
@@ -155,6 +160,29 @@ def test_a_document_is_filed_and_named_by_an_entry(server, brain_dir, tmp_path):
     assert [hit["id"] for hit in read["hits"]] == [journal["id"]]
     assert (brain_dir / "documents" / "car" / "invoice.pdf").read_bytes() == b"%PDF invoice"
     assert refused[0] == "error" and "relative" in refused[1]
+
+
+def test_a_document_is_moved_in_listed_and_never_filed_twice(server, tmp_path):
+    scan = tmp_path / "scan.pdf"
+    scan.write_bytes(b"%PDF invoice")
+    filed, listed = calls(
+        server,
+        ("store_document", {"source": str(scan), "path": "assets/car/2026-09-14-invoice.pdf", "move": True}),
+        ("list_documents", {"folder": "assets"}),
+    )
+    scan.write_bytes(b"%PDF invoice")
+    journal, found, again = calls(
+        server,
+        ("write_journal", {"event_date": "2026-09-14", "description": "Oil change invoice",
+                           "body": "Invoice filed.", "documents": [filed]}),
+        ("search", {"documents": [filed["sha256"]]}),
+        ("store_document", {"source": str(scan), "path": "assets/car/copy.pdf", "move": True}),
+    )
+
+    assert listed == {"folders": [{"name": "car", "documents": 1}], "documents": []}
+    assert [hit["id"] for hit in found["hits"]] == [journal["id"]]
+    assert again[0] == "error" and "already filed" in again[1] and journal["id"] in again[1]
+    assert scan.exists()
 
 
 def test_the_server_answers_over_stdio_and_keeps_stdout_for_the_protocol(brain_dir, data_dir):
