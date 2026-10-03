@@ -61,3 +61,83 @@ def test_a_source_that_is_not_a_file_is_refused(documents, tmp_path):
         documents.store(tmp_path / "missing.pdf", "invoice.pdf")
     with pytest.raises(DocumentError, match="no file"):
         documents.store(tmp_path, "invoice.pdf")
+
+
+def test_a_move_removes_the_original_once_the_document_is_filed(documents, brain_dir, invoice):
+    filed = documents.store(invoice, "assets/car/invoice.pdf", move=True)
+
+    assert (brain_dir / "documents" / "assets" / "car" / "invoice.pdf").read_bytes() == b"%PDF invoice"
+    assert filed["sha256"] == hashlib.sha256(b"%PDF invoice").hexdigest()
+    assert not invoice.exists()
+
+
+def test_a_document_already_filed_is_never_moved(documents, brain_dir, invoice):
+    documents.store(invoice, "car/invoice.pdf")
+    filed = brain_dir / "documents" / "car" / "invoice.pdf"
+
+    with pytest.raises(DocumentError, match="never moved"):
+        documents.store(filed, "car/elsewhere.pdf", move=True)
+    assert filed.exists()
+    assert not (brain_dir / "documents" / "car" / "elsewhere.pdf").exists()
+
+
+def test_an_original_that_cannot_be_removed_is_filed_and_reported(documents, brain_dir, invoice, monkeypatch):
+    unlink = type(invoice).unlink
+
+    def refuse(path, missing_ok=False):
+        if path == invoice:
+            raise PermissionError(13, "Permission denied")
+        unlink(path, missing_ok)
+
+    monkeypatch.setattr(type(invoice), "unlink", refuse)
+    with pytest.raises(DocumentError, match="could not be removed") as refused:
+        documents.store(invoice, "car/invoice.pdf", move=True)
+
+    assert hashlib.sha256(b"%PDF invoice").hexdigest() in str(refused.value)
+    assert (brain_dir / "documents" / "car" / "invoice.pdf").read_bytes() == b"%PDF invoice"
+    assert invoice.exists()
+
+
+def test_contents_an_entry_already_names_are_refused_wherever_they_would_go(brain_dir, reader, entries, invoice):
+    documents = Documents(brain_dir, reader)
+    filed = documents.store(invoice, "car/invoice.pdf")
+    entry_id = entries.write_journal(
+        event_date="2026-09-14", description="Oil change invoice", body="Filed.", documents=[filed],
+    )
+
+    with pytest.raises(DocumentError, match="already filed at 'car/invoice.pdf'") as refused:
+        documents.store(invoice, "car/another.pdf", move=True)
+
+    assert entry_id in str(refused.value)
+    assert invoice.exists()
+    assert sorted(p.name for p in (brain_dir / "documents" / "car").iterdir()) == ["invoice.pdf"]
+
+
+def test_filing_again_before_an_entry_names_it_returns_it_as_it_is(brain_dir, reader, invoice):
+    documents = Documents(brain_dir, reader)
+    first = documents.store(invoice, "car/invoice.pdf")
+
+    assert documents.store(invoice, "car/invoice.pdf", move=True) == first
+    assert not invoice.exists()
+
+
+def test_browsing_lists_one_folder_with_how_many_documents_each_holds(documents, brain_dir, invoice, tmp_path):
+    assert documents.browse() == {"folders": [], "documents": []}
+    documents.store(invoice, "assets/car/service/2026-09-14-invoice.pdf")
+    documents.store(invoice, "assets/car/2026-01-02-title.pdf")
+    documents.store(invoice, "assets/House/deed.pdf")
+    (brain_dir / "documents" / "assets" / ".copy.tmp").write_bytes(b"part")
+    (brain_dir / "documents" / "assets" / "notes.txt").write_bytes(b"notes")
+
+    assert documents.browse() == {"folders": [{"name": "assets", "documents": 4}], "documents": []}
+    assert documents.browse("assets") == {
+        "folders": [{"name": "car", "documents": 2}, {"name": "House", "documents": 1}],
+        "documents": ["notes.txt"],
+    }
+    assert documents.browse("assets/car") == {
+        "folders": [{"name": "service", "documents": 1}], "documents": ["2026-01-02-title.pdf"],
+    }
+    with pytest.raises(DocumentError, match="no folder"):
+        documents.browse("assets/boat")
+    with pytest.raises(DocumentError, match="relative"):
+        documents.browse("../assets")

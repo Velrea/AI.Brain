@@ -36,6 +36,7 @@ LIKELY = 0.8
 _TERM = re.compile(r'(-?)"([^"]*)"?(\*?)|(\S+)')
 # Marks where FTS5 found a match in a snippet, to tell which column matched.
 _START, _END = "\x02", "\x03"
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class PatternError(ValueError):
@@ -108,6 +109,7 @@ class Reader:
         recorded_after: str | None = None,
         details: dict[str, str] | None = None,
         entities: list[str] | None = None,
+        documents: list[str] | None = None,
         newest_first: bool = False,
     ) -> list[Hit]:
         """Finds entries of any type and returns every one as a lean hit.
@@ -122,7 +124,8 @@ class Reader:
         entities were missed when it was written is still found by its words.
         The event dates are inclusive. `recorded_after` is a UTC time or date,
         and finds entries recorded or revised after it. `details` matches a
-        type's own fields exactly. Raises PatternError for a pattern with
+        type's own fields exactly. `documents` are sha256 hashes: only an
+        entry naming a filed document with one of them is a hit. Raises PatternError for a pattern with
         nothing to look for, and TooManyHits, with how to refine it, when more
         entries match than the ceiling.
         """
@@ -138,6 +141,15 @@ class Reader:
         if found:
             where.append(f"({' OR '.join(found)})")
             params += found_params
+        if documents is not None:
+            for digest in documents:
+                if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+                    raise ValueError(f"a document's sha256 is 64 lowercase hex characters: {digest!r}")
+            where.append(
+                "EXISTS (SELECT 1 FROM json_each(details, '$.documents') AS document"
+                " WHERE json_extract(document.value, '$.sha256') IN (SELECT value FROM json_each(?)))"
+            )
+            params.append(json.dumps(list(documents)))
         if types is not None:
             where.append("type IN (SELECT value FROM json_each(?))")
             params.append(json.dumps(list(types)))
@@ -250,7 +262,7 @@ class Reader:
 
 def _match(pattern: str) -> str:
     """A pattern as an FTS5 query. Every term is quoted, so no character of it
-    reaches FTS5's own syntax: `Dr. J` and `dr-jekyll` are searched as words."""
+    reaches FTS5's own syntax, and punctuation inside a term is searched as a word break."""
     groups, positive, negative = [], [], []
     for term in _TERM.finditer(pattern):
         if term[4] is not None:

@@ -202,3 +202,23 @@ def test_resolve_keeps_to_its_limit_best_first(entries, reader):
     assert [e.slug for e in reader.resolve(["dr jekyll"], limit=2)["dr jekyll"]] == [
         "dr-jekyll", "dr-jekyll-senior",
     ]
+
+
+def test_search_finds_the_entries_naming_a_document_by_its_hash(writer, entries, reader):
+    invoice, deed = "a" * 64, "b" * 64
+    entries.write_journal(event_date="2026-01-01", description="Oil change", body="Done.",
+                          documents=[{"path": "car/invoice.pdf", "sha256": invoice}])
+    entries.write_journal(event_date="2026-02-01", description="Bought the house", body="Signed.",
+                          documents=[{"path": "house/deed.pdf", "sha256": deed},
+                                     {"path": "car/invoice.pdf", "sha256": invoice}])
+    entries.write_journal(event_date="2026-03-01", description="Nothing filed", body="Talked.")
+
+    def found(pattern=None, **filters):
+        return [hit.description for hit in reader.search(pattern, **filters)]
+
+    assert found(documents=[invoice]) == ["Oil change", "Bought the house"]
+    assert found(documents=[deed]) == ["Bought the house"]
+    assert found(documents=["c" * 64]) == []
+    assert found("signed", documents=[invoice]) == ["Bought the house"]
+    with pytest.raises(ValueError, match="64 lowercase hex"):
+        reader.search(documents=["ABC"])
