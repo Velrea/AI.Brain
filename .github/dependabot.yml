@@ -1,7 +1,8 @@
 version: 2
 updates:
   # The server's pinned packages: one grouped pull request a week, tested by CI before it merges.
-  - package-ecosystem: pip
+  # uv recompiles requirements.txt from requirements.in, so packages that must match move together.
+  - package-ecosystem: uv
     directory: /plugin
     schedule:
       interval: weekly
