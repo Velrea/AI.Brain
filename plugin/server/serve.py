@@ -1,5 +1,5 @@
 """The Brain's MCP server, over stdio: the core module's write, search, and
-read, and its documents store, each as a tool.
+read, each as a tool.
 
 It is the translation between the core module and the model's context, and
 holds no logic about the data: every tool calls the core module, and each
@@ -22,7 +22,6 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from brain.documents import Documents
 from brain.entries import Entries
 from brain.format import RecordError
 from brain.lock import LockTimeout
@@ -35,14 +34,12 @@ log = logging.getLogger("brain")
 INSTRUCTIONS = """\
 The Brain is the user's journal of whatever they choose to record: an append-only \
 log of entries, each of a type its skill defines, named by slugs and linked to other \
-entries by slug, and filed documents. Nothing is ever edited; a correction is a \
+entries by slug. Nothing is ever edited; a correction is a \
 revision through `write`. Find with `search`, then `read` only the ids you pick. \
 Search by names for the slugs of what you mean before linking to or searching by them."""
 
 READS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
-# Filing can move a file, removing the original from where it was.
-FILES = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
 
 # Failures the model can put right, or retry: each comes back as an error result.
 _ANTICIPATED = (RecordError, ValueError, LockTimeout, AppendBlocked)
@@ -98,7 +95,6 @@ def build(brain: Path, data: Path) -> MCPServer:
     """The server for one Brain folder, keeping this machine's files in `data`."""
     reader = Reader(brain, data)
     entries = Entries(Writer(brain, data), reader)
-    documents = Documents(brain, reader)
     server = MCPServer("brain", instructions=INSTRUCTIONS)
 
     @server.tool(annotations=WRITES, structured_output=False)
@@ -134,8 +130,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         links: slugs of the entries this one is about, each carried by an entry.
           A link no entry carries is refused and nothing is written.
         aliases: other names it goes by, so a search by names finds it.
-        details: the type's own fields. A document entry names its filed document
-          by "path" and "sha256", as store_document returned them.
+        details: the type's own fields.
         source: how the information arrived, in a word.
         """
         return {"id": entries.write(
@@ -202,36 +197,6 @@ def build(brain: Path, data: Path) -> MCPServer:
         the ids a search picked out.
         """
         return render(reader.read(ids))
-
-    @server.tool(annotations=FILES, structured_output=False)
-    @_tool
-    def store_document(source: str, path: str, move: bool = False) -> dict:
-        """Files a document into the Brain and returns {"path": ..., "sha256": ...}.
-
-        source: the file to file, a path on this machine.
-        path: where it is filed inside the Brain's documents, relative, with /
-          between folders. Browse with list_documents to fit it beside similar documents.
-        move: true removes the source once the document is filed; false leaves
-          it where it is. A document already in the Brain's documents is never moved.
-        Filing the same contents at a path again returns it as it is; a path that
-        already holds other contents is refused, and so are contents a document
-        entry already names, wherever they are filed, with where they are. File
-        the document first, then record it with write as an entry of type
-        document, passing what this returns in its details.
-        """
-        return documents.store(Path(source), path, move=move)
-
-    @server.tool(annotations=READS, structured_output=False)
-    @_tool
-    def list_documents(folder: str = "") -> dict:
-        """Lists one folder of the Brain's documents, as {"folders": [...], "documents": [...]}:
-        each folder its name and how many documents it holds at any depth, and
-        each document its file name, in name order.
-
-        folder: relative, with / between folders; empty for the top. Browse from the top down to find where similar
-          documents are filed.
-        """
-        return documents.browse(folder)
 
     return server
 

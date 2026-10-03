@@ -1,14 +1,18 @@
 import hashlib
+import json
+import subprocess
+import sys
 
 import pytest
 
-from brain.documents import DocumentError, Documents
+from documents import DocumentError, Documents, main
 
-from conftest import create
+from conftest import PLUGIN
 
 
 @pytest.fixture
 def documents(brain_dir):
+    brain_dir.mkdir()
     return Documents(brain_dir)
 
 
@@ -100,26 +104,45 @@ def test_an_original_that_cannot_be_removed_is_filed_and_reported(documents, bra
     assert invoice.exists()
 
 
-def test_contents_a_document_entry_names_are_refused_wherever_they_would_go(brain_dir, reader, entries, invoice):
-    documents = Documents(brain_dir, reader)
-    filed = documents.store(invoice, "car/invoice.pdf")
-    entry_id = create(entries, "oil-change-invoice", type="document", description="Oil change invoice",
-                      details=filed)
-
-    with pytest.raises(DocumentError, match="already filed at 'car/invoice.pdf'") as refused:
-        documents.store(invoice, "car/another.pdf", move=True)
-
-    assert entry_id in str(refused.value)
-    assert invoice.exists()
-    assert sorted(p.name for p in (brain_dir / "documents" / "car").iterdir()) == ["invoice.pdf"]
-
-
-def test_filing_again_before_an_entry_names_it_returns_it_as_it_is(brain_dir, reader, invoice):
-    documents = Documents(brain_dir, reader)
+def test_filing_again_at_its_path_returns_it_as_it_is_and_moves_the_original(documents, invoice):
     first = documents.store(invoice, "car/invoice.pdf")
 
     assert documents.store(invoice, "car/invoice.pdf", move=True) == first
     assert not invoice.exists()
+
+
+def test_a_brain_folder_that_does_not_exist_is_refused(tmp_path):
+    with pytest.raises(DocumentError, match="does not exist"):
+        Documents(tmp_path / "unmounted")
+
+
+def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, invoice, capsys):
+    brain_dir.mkdir()
+    digest = hashlib.sha256(b"%PDF invoice").hexdigest()
+
+    assert main(["hash", str(invoice)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"sha256": digest}
+    assert main(["store", "--brain", str(brain_dir), str(invoice), "car/invoice.pdf", "--move"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": "car/invoice.pdf", "sha256": digest}
+    assert main(["list", "--brain", str(brain_dir)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"folders": [{"name": "car", "documents": 1}], "documents": []}
+
+    assert main(["hash", str(invoice)]) == 1
+    printed = capsys.readouterr()
+    assert printed.out == "" and "no file" in printed.err
+
+
+def test_the_launcher_runs_the_script_on_this_machines_python(invoice):
+    script = PLUGIN / "skills" / "document" / "scripts" / "documents.py"
+    if sys.platform == "win32":
+        command = ["cmd", "/c", str(PLUGIN / "scripts" / "brain.cmd")]
+    else:
+        command = ["sh", str(PLUGIN / "scripts" / "brain")]
+
+    done = subprocess.run([*command, "run", str(script), "hash", str(invoice)], capture_output=True, text=True)
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {"sha256": hashlib.sha256(b"%PDF invoice").hexdigest()}
 
 
 def test_browsing_lists_one_folder_with_how_many_documents_each_holds(documents, brain_dir, invoice, tmp_path):

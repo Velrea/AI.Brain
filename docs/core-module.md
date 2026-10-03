@@ -4,7 +4,7 @@ The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-lev
 
 A Brain is an append-only log of entries. It holds events, never current state; how things stand now is worked out by reading the entries in order. A record is never edited, and a correction is a new record.
 
-The core module knows no type of entry but one. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry or an entity, is defined by [the skill](skills.md) that writes it. So a skill someone writes for their own use records its own type with no change here or to the server. The one type the core module knows is `document`, the record of a filed document, since [the documents store](#documents) relies on it.
+The core module knows no type of entry. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry, an entity, or a filed document, is defined by [the skill](skills.md) that writes it. So a skill someone writes for their own use records its own type with no change here or to the server. Work a skill needs beyond writing and reading entries, such as filing a document's file, is done by the skill's own script.
 
 | Module | Holds |
 | --- | --- |
@@ -14,7 +14,6 @@ The core module knows no type of entry but one. Every entry has the same shape, 
 | [`index.py`](../plugin/brain/index.py) | The local index: the SQLite database this machine keeps of the files, caught up before every read. |
 | [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and entries by id. It reads through the index and imports the file format, never the write path. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
-| [`documents.py`](../plugin/brain/documents.py) | The [documents store](#documents): original files, filed beside the events. |
 
 ## Folders
 
@@ -23,7 +22,7 @@ The core module knows no type of entry but one. Every entry has the same shape, 
   events/
     h-0199a8c4-….jsonl         sealed: its machine has moved on
     h-0199f02e-….jsonl         open: its machine appends here
-  documents/                   the filed documents
+  documents/                   the filed documents, kept by the document skill
     assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf
 
 <plugin data folder>/          this machine's own, never synced
@@ -77,7 +76,7 @@ An entry can carry more than one slug. Two entries that turn out to be one thing
 
 A caller writes through `Entries.write`, which takes the type, its version, and the type's own fields, and calls `Writer.write_entry`. The MCP server exposes `Entries.write`, never `write_entry`. Given no `entry`, it creates an entry, which needs a slug, an event date, a description, and a body. Given the id of an entry, it [revises](#revisions) that entry.
 
-It checks an entry against what is already recorded, before the lock: a new entry's slug must be one no entry carries, or it raises `SlugTaken`, naming the entry that carries it, so the caller can revise that one instead; each link must be a slug some entry carries, or it raises `UnknownLinks`, so an entry never links to nothing; and a revision must name an entry of its own type. Slugs are never removed, so a link found before the lock still resolves when it is written. A document entry must name its document by `path` and `sha256`.
+It checks an entry against what is already recorded, before the lock: a new entry's slug must be one no entry carries, or it raises `SlugTaken`, naming the entry that carries it, so the caller can revise that one instead; each link must be a slug some entry carries, or it raises `UnknownLinks`, so an entry never links to nothing; and a revision must name an entry of its own type. Slugs are never removed, so a link found before the lock still resolves when it is written.
 
 ```mermaid
 flowchart LR
@@ -165,14 +164,3 @@ A snapshot needs no read of its own. A caller finds the latest one for a questio
 A record that syncs later than the reach-back is missed, and so is a record the model misread when folding. Both are accepted: a machine with no connection cannot reach the model to record anything, so a long delay is rare, and any store kept in step by a sync service has the same gap. Either is fixed the same way, by building the snapshot afresh from every matching entry and writing a new one.
 
 Nothing extracts facts, such as a current dose, when an entry is written. Extracting them would need every future question anticipated, and a fact extracted wrong is trusted silently. Links find every entry on a subject without knowing the question, and a snapshot caches an expensive answer for a question actually asked.
-
-## Documents
-
-The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf`, and returns the path and the copy's `sha256`. Asked to move, it removes the original once the copy is in place, so one copy remains and it is the filed one. The document is then recorded as an entry of type `document`, naming both in its `details` exactly as `store` returned them, after it is filed, so a pointer never points at nothing; other entries link to it by its slug. `Documents.browse` lists one folder at a time, its folders with how many documents each holds and its documents by name, for a caller choosing where a document belongs.
-
-- **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there raises `DocumentError`, so a pointer to a document never comes to point at something else.
-- **A document is filed once.** Given the `Reader`, `store` refuses contents a document entry already names, wherever they would be filed, and says where they are and which entry names them; the original stays where it was. It looks them up with a search of document entries by `sha256`. Contents filed but not yet recorded, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
-- **A filed document is never moved.** A move of a file already inside `documents/` is refused, since the entries naming it would point at nothing.
-- **An original that cannot be removed** is reported after the document is filed, with its path and `sha256`, so the entry can still name it.
-- **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.
-- **Paths are plain.** A path is relative, with `/` between folders, and no name in it is empty, `.` or `..`, ends in a dot or a space, holds a character Windows forbids, or is a name Windows keeps for a device, so a document filed on one machine can be synced to any other.

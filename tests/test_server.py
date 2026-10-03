@@ -12,7 +12,7 @@ from mcp.client.session import ClientSession
 from conftest import PLUGIN
 from server.serve import build
 
-TOOLS = {"write", "search", "read", "store_document", "list_documents"}
+TOOLS = {"write", "search", "read"}
 
 
 @pytest.fixture
@@ -58,8 +58,7 @@ def test_every_tool_is_listed_with_its_rules(server):
     assert "merges" in tools["write"].description
     assert tools["search"].annotations.read_only_hint is True
     assert tools["write"].annotations.read_only_hint is False
-    assert tools["list_documents"].annotations.read_only_hint is True
-    assert tools["store_document"].annotations.destructive_hint is True
+    assert tools["read"].annotations.read_only_hint is True
 
 
 def test_an_entry_linking_to_an_entity_is_written_found_and_read(server):
@@ -147,31 +146,27 @@ def test_a_search_past_the_ceiling_fails_with_ranges_to_search(server):
     assert "120 entries match" in too_many[1] and "2026-01-01 to" in too_many[1]
 
 
-def test_a_document_is_filed_recorded_found_by_its_hash_and_never_filed_twice(server, brain_dir, tmp_path):
-    scan = tmp_path / "scan.pdf"
-    scan.write_bytes(b"%PDF invoice")
-    refused, filed, listed = calls(
-        server,
-        ("store_document", {"source": str(scan), "path": "../invoice.pdf"}),
-        ("store_document", {"source": str(scan), "path": "assets/car/2026-09-14-invoice.pdf", "move": True}),
-        ("list_documents", {"folder": "assets"}),
-    )
-    scan.write_bytes(b"%PDF invoice")
-    document, found, again = calls(
+def test_an_entry_of_a_type_the_server_knows_nothing_of_is_written_found_revised_and_read(server):
+    filed = {"path": "car/invoice.pdf", "sha256": "a" * 64}
+    document, captured, found, linked = calls(
         server,
         ("write", {"type": "document", "version": 1, "slug": "oil-change-invoice", "event_date": "2026-09-14",
                    "description": "Oil change invoice", "body": "Oil and filter, 48k.", "details": filed}),
+        journal("filed-the-invoice", description="Filed the oil change invoice", links=["oil-change-invoice"]),
         ("search", {"types": ["document"], "details": {"sha256": filed["sha256"]}}),
-        ("store_document", {"source": str(scan), "path": "assets/car/copy.pdf", "move": True}),
+        ("search", {"slugs": ["oil-change-invoice"]}),
+    )
+    revised, read = calls(
+        server,
+        ("write", {"type": "document", "version": 1, "entry": document["id"], "details": {"sha256": "b" * 64},
+                   "body": "The garage sent a corrected invoice."}),
+        ("read", {"ids": [document["id"]]}),
     )
 
-    assert filed["path"] == "assets/car/2026-09-14-invoice.pdf" and len(filed["sha256"]) == 64
-    assert (brain_dir / "documents" / "assets" / "car" / "2026-09-14-invoice.pdf").read_bytes() == b"%PDF invoice"
-    assert listed == {"folders": [{"name": "car", "documents": 1}], "documents": []}
-    assert refused[0] == "error" and "relative" in refused[1]
     assert [hit["id"] for hit in found["hits"]] == [document["id"]]
-    assert again[0] == "error" and "already filed" in again[1] and document["id"] in again[1]
-    assert scan.exists()
+    assert {hit["id"] for hit in linked["hits"]} == {document["id"], captured["id"]}
+    assert f"sha256: {'b' * 64}" in read.splitlines() and "path: car/invoice.pdf" in read.splitlines()
+    assert revised["id"] != document["id"]
 
 
 def test_the_server_answers_over_stdio_and_keeps_stdout_for_the_protocol(brain_dir, data_dir):

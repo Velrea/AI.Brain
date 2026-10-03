@@ -9,7 +9,6 @@ entry of its own type. The server exposes this, never `Writer.write_entry`.
 
 from collections.abc import Mapping, Sequence
 
-from .documents import DOCUMENT, check_document
 from .format import REVISABLE, RecordError, check_slug
 from .read import Reader
 from .write import Writer
@@ -92,10 +91,6 @@ class Entries:
             raise RecordError(f"no entry has the id {entry!r}")
         if current["type"] != type:
             raise RecordError(f"entry {current['id']} is a {current['type']}, not a {type}")
-        if type == DOCUMENT and details:
-            check_document({
-                name: value for name, value in {**current["details"], **details}.items() if value is not None
-            })
         return self.writer.write_entry(
             entry=current["id"],
             type=type,
@@ -115,8 +110,6 @@ class Entries:
     def _create(self, *, type, version, slug, event_date, description, body, links, aliases, details,
                 source) -> str:
         check_slug("slug", slug)
-        if type == DOCUMENT:
-            check_document(details)
         if holders := self.reader.holders([slug]).get(slug):
             raise SlugTaken(slug, holders)
         return self.writer.write_entry(

@@ -1,6 +1,5 @@
 import pytest
 
-from brain.documents import DocumentError
 from brain.entries import SlugTaken, UnknownLinks
 from brain.format import RecordError
 
@@ -98,19 +97,3 @@ def test_a_revision_that_changes_nothing_or_names_no_entry_of_its_type_is_refuse
     with pytest.raises(UnknownLinks):
         entries.write(type="journal", version=1, entry=original, links=["glimmerol"])
     assert len(written(brain_dir)) == before
-
-
-def test_a_document_entry_names_its_document_by_path_and_hash(entries, brain_dir):
-    filed = {"path": "car/invoice.pdf", "sha256": "a" * 64}
-    document = create(entries, "oil-change-invoice", type="document", details={**filed, "issuer": "Garage"})
-    for details in ({"path": "car/invoice.pdf"}, {**filed, "sha256": "A" * 64}, {**filed, "path": "../x.pdf"}):
-        with pytest.raises(DocumentError):
-            create(entries, "a-bad-document", type="document", details=details)
-    with pytest.raises(DocumentError):
-        entries.write(type="document", version=1, entry=document, details={"sha256": None})
-
-    entries.write(type="document", version=1, entry=document, details={"sha256": "b" * 64},
-                  body="The garage sent a corrected invoice.")
-    assert [record["details"] for record in written(brain_dir)] == [
-        {**filed, "issuer": "Garage"}, {"sha256": "b" * 64},
-    ]

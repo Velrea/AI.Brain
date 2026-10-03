@@ -34,9 +34,9 @@ Record it with `write`:
 
 One event per entry. Keep every link or reference the account gives to where more of it lives. Never write a secret in full; keep only enough of it to tell it apart. A slug already taken gets more words.
 
-## A document
+## Documents
 
-`intake` records a document as an entry of its own. When the document records an event, write the event's entry here, linking to the document's slug: the document is the account, so ask only about what it leaves unclear, and date the entry by the event. Documents about one event share an entry linking to each.
+`document` files each document and records it as an entry of its own, then hands them here. Write the entry recording what was captured: what the documents say, summarized, and what surrounds them, linking to each document entry's slug. The documents are the account, so ask only about what they leave unclear, and date the entry by the event they record, or else the day they were captured. Documents about one event share one entry.
 
 ## Corrections
 
