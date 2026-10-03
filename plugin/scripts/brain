@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs the Brain's launcher with this machine's own Python 3.11 or later:
+# python3, or else python. brain.cmd beside it does the same on Windows.
+launch="$(dirname "$0")/../server/launch.py"
+for python in python3 python; do
+  if "$python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+    exec "$python" "$launch" "$@"
+  fi
+done
+echo "The Brain needs Python 3.11 or later, as python3 or python on the PATH." >&2
+exit 1

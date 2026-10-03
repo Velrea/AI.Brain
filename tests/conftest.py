@@ -25,8 +25,8 @@ def entry(**overrides) -> dict:
     return fields | overrides
 
 
-def event_files(event_store: Path) -> list[Path]:
-    return sorted((event_store / "events").glob("*.jsonl"))
+def event_files(brain_dir: Path) -> list[Path]:
+    return sorted((brain_dir / "events").glob("*.jsonl"))
 
 
 def lines_of(path: Path) -> list[bytes]:
@@ -52,29 +52,29 @@ def python(code: str, *args: str) -> subprocess.Popen:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> Path:
-    return tmp_path / "event store"
+def brain_dir(tmp_path: Path) -> Path:
+    return tmp_path / "brain"
 
 
 @pytest.fixture
-def state(tmp_path: Path) -> Path:
-    return tmp_path / "machine state"
+def data_dir(tmp_path: Path) -> Path:
+    return tmp_path / "machine data"
 
 
 @pytest.fixture
-def writer(store: Path, state: Path) -> Writer:
-    return Writer(store, state)
+def writer(brain_dir: Path, data_dir: Path) -> Writer:
+    return Writer(brain_dir, data_dir)
 
 
 @pytest.fixture
-def other_machine(store: Path, tmp_path: Path) -> Writer:
-    """A second machine writing to the same event store, so to a file of its own."""
-    return Writer(store, tmp_path / "other machine state")
+def other_machine(brain_dir: Path, tmp_path: Path) -> Writer:
+    """A second machine writing to the same Brain, so to a file of its own."""
+    return Writer(brain_dir, tmp_path / "other machine data")
 
 
 @pytest.fixture
-def reader(store: Path, state: Path) -> Reader:
-    return Reader(store, state)
+def reader(brain_dir: Path, data_dir: Path) -> Reader:
+    return Reader(brain_dir, data_dir)
 
 
 @pytest.fixture

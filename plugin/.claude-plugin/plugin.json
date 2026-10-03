@@ -4,5 +4,13 @@
   "author": {
     "name": "Velrea"
   },
-  "license": "Elastic-2.0"
+  "license": "Elastic-2.0",
+  "userConfig": {
+    "brain_folder": {
+      "type": "directory",
+      "title": "Brain folder",
+      "description": "The folder that holds your Brain: its records in events/ and its filed documents in documents/. Put it in a synced folder, such as Google Drive, and point every machine at the same one.",
+      "required": true
+    }
+  }
 }

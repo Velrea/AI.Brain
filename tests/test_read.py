@@ -10,9 +10,9 @@ from brain.write import Writer
 from conftest import entry, event_files, lines_of
 
 
-def test_an_invalid_line_and_a_torn_last_line_are_skipped(writer, reader, store):
+def test_an_invalid_line_and_a_torn_last_line_are_skipped(writer, reader, brain_dir):
     writer.write_entry(**entry(description="before"))
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     with open(path, "ab") as file:
         file.write(b'not json\n{"id":"0199a8c4-no-envelope"}\n')
     writer.write_entry(**entry(description="after"))
@@ -75,9 +75,9 @@ def test_a_pattern_matches_description_or_body_of_any_type_in_any_case(writer, r
     assert len(hits[1].snippet) < 200
 
 
-def test_search_filters_by_type_event_date_recorded_time_and_details(store, tmp_path, reader):
+def test_search_filters_by_type_event_date_recorded_time_and_details(brain_dir, tmp_path, reader):
     now = [dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)]
-    writer = Writer(store, tmp_path / "state", clock=lambda: now[0])
+    writer = Writer(brain_dir, tmp_path / "data", clock=lambda: now[0])
     writer.write_entry(**entry(event_date="2026-01-10", description="January"))
     writer.write_entry(**entry(event_date="2026-02-10", description="February"))
     writer.write_entry(**entry(type="snapshot", description="Snapshot", details={"scope": "car"}))
@@ -107,11 +107,11 @@ def test_read_returns_full_records_for_a_list_of_ids_in_one_call(writer, reader)
     assert (second["id"], second["source"], second["details"]) == (tyres, None, {})
 
 
-def test_a_record_in_two_files_is_returned_once(writer, other_machine, reader, store):
+def test_a_record_in_two_files_is_returned_once(writer, other_machine, reader, brain_dir):
     copied = writer.write_entry(**entry(description="Oil change"))
     other_machine.write_entry(**entry(description="Tyres", body="Four new tyres."))
-    [line] = [line for path in event_files(store) for line in lines_of(path) if copied.encode() in line]
-    [theirs] = [path for path in event_files(store) if line not in lines_of(path)]
+    [line] = [line for path in event_files(brain_dir) for line in lines_of(path) if copied.encode() in line]
+    [theirs] = [path for path in event_files(brain_dir) if line not in lines_of(path)]
     with open(theirs, "ab") as file:
         file.write(line + b"\n")
 
@@ -175,11 +175,11 @@ def test_resolve_returns_the_likely_entities_for_each_name_and_no_others(entries
     assert reader.resolve([]) == {}
 
 
-def test_an_entity_restated_takes_the_newest_name_and_every_alias(store, state, tmp_path, reader):
+def test_an_entity_restated_takes_the_newest_name_and_every_alias(brain_dir, data_dir, tmp_path, reader):
     # Two machines' ids order only by time, so each write takes a later millisecond.
     ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(9))
-    entries = Entries(Writer(store, state, clock=lambda: next(ticks)), reader)
-    other_machine = Writer(store, tmp_path / "other machine state", clock=lambda: next(ticks))
+    entries = Entries(Writer(brain_dir, data_dir, clock=lambda: next(ticks)), reader)
+    other_machine = Writer(brain_dir, tmp_path / "other machine data", clock=lambda: next(ticks))
     entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["ZB"], body="A potion.")
     # Another machine adds an alias of its own before the two sync.
     Entries(other_machine, reader).write_entity(

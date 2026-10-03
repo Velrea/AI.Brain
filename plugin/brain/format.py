@@ -12,7 +12,9 @@ import uuid
 from pathlib import Path
 
 EVENTS_DIR = "events"
-"""The one flat folder, inside the event store, that holds every event file."""
+"""The one flat folder, inside the Brain folder, that holds every event file."""
+DOCUMENTS_DIR = "documents"
+"""The folder, beside `events/`, that holds the filed documents."""
 
 _UUID7 = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _FILE_NAME = re.compile(rf"^h-(?P<id>{_UUID7})\.jsonl$")
@@ -34,14 +36,18 @@ class RecordError(ValueError):
     """A record that does not have the shape of an entry."""
 
 
-def events_dir(event_store: Path) -> Path:
-    return Path(event_store) / EVENTS_DIR
+def events_dir(brain_dir: Path) -> Path:
+    return Path(brain_dir) / EVENTS_DIR
 
 
-def state_key(event_store: Path) -> str:
-    """Names this machine's state for one event store, so two Brains on one
+def documents_dir(brain_dir: Path) -> Path:
+    return Path(brain_dir) / DOCUMENTS_DIR
+
+
+def brain_key(brain_dir: Path) -> str:
+    """Names this machine's files for one Brain folder, so two Brains on one
     machine never share a lock, a current file, or an index."""
-    path = os.path.normcase(str(Path(event_store).resolve()))
+    path = os.path.normcase(str(Path(brain_dir).resolve()))
     return hashlib.sha256(path.encode()).hexdigest()[:16]
 
 

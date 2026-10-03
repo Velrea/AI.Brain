@@ -1,7 +1,7 @@
-"""The local index: a SQLite database this machine keeps of one event store.
+"""The local index: a SQLite database this machine keeps of one Brain folder.
 
 The files are the Brain; the index is a projection of them, kept in the
-machine's state folder and never synced. It holds nothing the files do not:
+machine's plugin data folder and never synced. It holds nothing the files do not:
 missing, corrupt, or built by another version, it is deleted and rebuilt from
 them. Every read catches it up first, taking in only the complete lines each
 file has gained since, so a sealed file is read once in its life.
@@ -20,7 +20,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from .format import events_dir, is_event_file, state_key
+from .format import brain_key, events_dir, is_event_file
 
 VERSION = 1
 """The index's own layout. A change names a new file, so sessions running two
@@ -92,14 +92,14 @@ class IndexUnavailable(RuntimeError):
 
 
 class Index:
-    """This machine's index of one event store, in its state folder."""
+    """This machine's index of one Brain folder, in its plugin data folder."""
 
-    def __init__(self, event_store: Path, state_dir: Path, *, busy_timeout: float = BUSY_TIMEOUT):
-        event_store = Path(event_store).resolve()
-        self.events = events_dir(event_store)
-        self.state_dir = Path(state_dir)
-        self.key = state_key(event_store)
-        self.path = self.state_dir / f"{self.key}.index-v{VERSION}.sqlite"
+    def __init__(self, brain_dir: Path, data_dir: Path, *, busy_timeout: float = BUSY_TIMEOUT):
+        brain_dir = Path(brain_dir).resolve()
+        self.events = events_dir(brain_dir)
+        self.data_dir = Path(data_dir)
+        self.key = brain_key(brain_dir)
+        self.path = self.data_dir / f"{self.key}.index-v{VERSION}.sqlite"
         self.busy_timeout = busy_timeout
 
     @contextlib.contextmanager
@@ -129,7 +129,7 @@ class Index:
         return con
 
     def _open(self) -> sqlite3.Connection:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         new = not self.path.exists()
         con = sqlite3.connect(self.path, timeout=self.busy_timeout, isolation_level=None)
         try:
@@ -205,7 +205,7 @@ class Index:
 
     def _delete_other_versions(self) -> None:
         """Clears the index files older or newer versions left, where no session holds them."""
-        for path in self.state_dir.glob(f"{self.key}.index-v*.sqlite*"):
+        for path in self.data_dir.glob(f"{self.key}.index-v*.sqlite*"):
             if not path.name.startswith(self.path.name):
                 with contextlib.suppress(OSError):
                     path.unlink()

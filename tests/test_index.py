@@ -14,9 +14,9 @@ from conftest import entry, event_files, python, records_of
 
 
 @pytest.fixture
-def elsewhere(other_machine, store, tmp_path) -> Entries:
+def elsewhere(other_machine, brain_dir, tmp_path) -> Entries:
     """Another machine's entries, read through its own index."""
-    return Entries(other_machine, Reader(store, tmp_path / "other machine state"))
+    return Entries(other_machine, Reader(brain_dir, tmp_path / "other machine data"))
 
 
 def journal(entries: Entries, description: str = "Started Zorblax", **fields) -> str:
@@ -26,7 +26,7 @@ def journal(entries: Entries, description: str = "Started Zorblax", **fields) ->
     )
 
 
-def test_a_revision_replaces_metadata_and_keeps_the_body_with_its_amendment(entries, reader, store):
+def test_a_revision_replaces_metadata_and_keeps_the_body_with_its_amendment(entries, reader, brain_dir):
     entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
     original = journal(entries, body="Two drops of Zorblax.")
     revision = entries.revise_journal(
@@ -50,7 +50,7 @@ def test_a_revision_replaces_metadata_and_keeps_the_body_with_its_amendment(entr
     assert [hit.id for hit in reader.search(entities=["zorblax"], types=["journal"])] == [original]
     assert reader.search("three drops")[0].snippet == "Correction: it was three drops, not two."
     # On disk: an original names itself, and a revision names the original.
-    on_disk = {r["id"]: r for path in event_files(store) for r in records_of(path)}
+    on_disk = {r["id"]: r for path in event_files(brain_dir) for r in records_of(path)}
     assert on_disk[original]["entry"] == original
     assert on_disk[revision]["entry"] == original
     assert on_disk[revision]["details"] == {"revises": ["description", "event_date", "entities"],
@@ -67,10 +67,10 @@ def test_a_revision_of_metadata_alone_adds_no_amendment(entries, reader):
     )
 
 
-def test_a_revision_that_changes_nothing_or_names_no_journal_entry_is_refused(entries, store):
+def test_a_revision_that_changes_nothing_or_names_no_journal_entry_is_refused(entries, brain_dir):
     original = journal(entries)
     snapshot = entries.write_snapshot(scope="potions", description="Potions", body="Zorblax.")
-    before = sum(len(records_of(path)) for path in event_files(store))
+    before = sum(len(records_of(path)) for path in event_files(brain_dir))
 
     with pytest.raises(RecordError, match="must change"):
         entries.revise_journal(original)
@@ -82,7 +82,7 @@ def test_a_revision_that_changes_nothing_or_names_no_journal_entry_is_refused(en
         entries.revise_journal("0199a8c4-0000-7000-8000-000000000000", description="Missing")
     with pytest.raises(UnknownEntities):
         entries.revise_journal(original, entities=["glimmerol"])
-    assert sum(len(records_of(path)) for path in event_files(store)) == before
+    assert sum(len(records_of(path)) for path in event_files(brain_dir)) == before
 
 
 def test_a_revision_arriving_late_is_applied_on_the_next_read(entries, elsewhere, reader):
@@ -94,10 +94,10 @@ def test_a_revision_arriving_late_is_applied_on_the_next_read(entries, elsewhere
     assert [hit.description for hit in reader.search()] == ["Started Zorblax, late"]
 
 
-def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere, reader, store, tmp_path):
+def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere, reader, brain_dir, tmp_path):
     original = journal(entries)
     elsewhere.revise_journal(original, description="Revised", amendment="Three drops.")
-    [ours] = [path for path in event_files(store) if original in path.read_text("utf-8")
+    [ours] = [path for path in event_files(brain_dir) if original in path.read_text("utf-8")
               and '"revises"' not in path.read_text("utf-8")]
     held = tmp_path / "held back"
     shutil.move(ours, held)
@@ -111,13 +111,13 @@ def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere
     assert (record["description"], [a["body"] for a in record["amendments"]]) == ("Revised", ["Three drops."])
 
 
-def test_two_machines_revising_different_fields_both_hold(store, state, tmp_path, reader):
+def test_two_machines_revising_different_fields_both_hold(brain_dir, data_dir, tmp_path, reader):
     # Two machines' ids order only by time, so each write takes a later millisecond.
     ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(9))
-    entries = Entries(Writer(store, state, clock=lambda: next(ticks)), reader)
+    entries = Entries(Writer(brain_dir, data_dir, clock=lambda: next(ticks)), reader)
     elsewhere = Entries(
-        Writer(store, tmp_path / "other machine state", clock=lambda: next(ticks)),
-        Reader(store, tmp_path / "other machine state"),
+        Writer(brain_dir, tmp_path / "other machine data", clock=lambda: next(ticks)),
+        Reader(brain_dir, tmp_path / "other machine data"),
     )
     original = journal(entries)
     entries.revise_journal(original, description="Ours")
@@ -133,10 +133,10 @@ def test_two_machines_revising_different_fields_both_hold(store, state, tmp_path
     assert reader.read([original])[0]["description"] == "Ours, newest"
 
 
-def test_recorded_after_finds_an_entry_revised_since(store, state, tmp_path):
+def test_recorded_after_finds_an_entry_revised_since(brain_dir, data_dir, tmp_path):
     now = [dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)]
-    reader = Reader(store, state)
-    entries = Entries(Writer(store, state, clock=lambda: now[0]), reader)
+    reader = Reader(brain_dir, data_dir)
+    entries = Entries(Writer(brain_dir, data_dir, clock=lambda: now[0]), reader)
     original = journal(entries)
     journal(entries, "Untouched")
     now[0] = dt.datetime(2026, 9, 5, tzinfo=dt.timezone.utc)
@@ -145,9 +145,9 @@ def test_recorded_after_finds_an_entry_revised_since(store, state, tmp_path):
     assert [hit.id for hit in reader.search(recorded_after="2026-09-03")] == [original]
 
 
-def test_a_complete_line_is_taken_in_only_once_its_newline_arrives(writer, reader, store):
+def test_a_complete_line_is_taken_in_only_once_its_newline_arrives(writer, reader, brain_dir):
     writer.write_entry(**entry(description="before"))
-    [path] = event_files(store)
+    [path] = event_files(brain_dir)
     halfway = "0199a8c4-0000-7000-8000-000000000001"
     line = encode(entry(id=halfway, entry=halfway, recorded_at="2026-09-15T00:00:00Z", event_date="2026-09-15",
                        description="halfway"))
@@ -178,12 +178,12 @@ def test_a_read_with_nothing_new_opens_no_file(writer, other_machine, reader, mo
     assert [path.name for path in opened] == [writer._load_state()["file"]]
 
 
-def test_a_file_that_vanishes_rebuilds_the_index(writer, other_machine, reader, store):
+def test_a_file_that_vanishes_rebuilds_the_index(writer, other_machine, reader, brain_dir):
     writer.write_entry(**entry(description="ours"))
     other_machine.write_entry(**entry(description="theirs"))
     assert len(reader.search()) == 2
 
-    [theirs] = [path for path in event_files(store) if b"theirs" in path.read_bytes()]
+    [theirs] = [path for path in event_files(brain_dir) if b"theirs" in path.read_bytes()]
     theirs.unlink()
 
     assert [hit.description for hit in reader.search()] == ["ours"]
@@ -199,7 +199,7 @@ def test_a_corrupt_index_is_rebuilt(writer, reader):
     assert [hit.description for hit in reader.search()] == ["kept"]
 
 
-def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(entries, elsewhere, reader, store, tmp_path):
+def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(entries, elsewhere, reader, brain_dir, tmp_path):
     entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["ZB"], body="A potion.")
     first = journal(entries, entities=["zorblax"])
     reader.search()
@@ -209,7 +209,7 @@ def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(entries, elsewhe
     entries.revise_journal(second, entities=["zorblax"], amendment="Four drops.")
     elsewhere.revise_journal(first, description="Began Zorblax")
 
-    rebuilt = Reader(store, tmp_path / "fresh state")
+    rebuilt = Reader(brain_dir, tmp_path / "fresh data")
     for search in (dict(), dict(pattern="drops"), dict(entities=["zorblax"])):
         assert reader.search(**search) == rebuilt.search(**search)
     assert reader.read([first, second]) == rebuilt.read([first, second])
@@ -232,11 +232,11 @@ Reader(sys.argv[1], sys.argv[2]).search()
 """
 
 
-def test_a_crash_midway_through_catching_up_loses_nothing(writer, other_machine, reader, store, state):
+def test_a_crash_midway_through_catching_up_loses_nothing(writer, other_machine, reader, brain_dir, data_dir):
     writer.write_entry(**entry(description="ours"))
     other_machine.write_entry(**entry(description="theirs"))
 
-    crashed = python(CRASH_MIDWAY, str(store), str(state))
+    crashed = python(CRASH_MIDWAY, str(brain_dir), str(data_dir))
     crashed.communicate(timeout=60)
     assert crashed.returncode == 3
 
@@ -248,9 +248,9 @@ import sys
 from brain.entries import Entries
 from brain.read import Reader
 from brain.write import Writer
-store, state, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-reader = Reader(store, state)
-entries = Entries(Writer(store, state), reader)
+brain_dir, data_dir, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+reader = Reader(brain_dir, data_dir)
+entries = Entries(Writer(brain_dir, data_dir), reader)
 for n in range(count):
     id = entries.write_journal(event_date="2026-09-14", description=f"{name} {n}", body="Zorblax.")
     assert [r["id"] for r in reader.read([id])] == [id]
@@ -260,9 +260,9 @@ for n in range(count):
 """
 
 
-def test_several_sessions_read_and_write_at_once(store, state, reader):
+def test_several_sessions_read_and_write_at_once(brain_dir, data_dir, reader):
     sessions, count = 4, 15
-    procs = [python(SESSION, str(store), str(state), f"s{i}", str(count)) for i in range(sessions)]
+    procs = [python(SESSION, str(brain_dir), str(data_dir), f"s{i}", str(count)) for i in range(sessions)]
     for proc in procs:
         _, err = proc.communicate(timeout=180)
         assert proc.returncode == 0, err

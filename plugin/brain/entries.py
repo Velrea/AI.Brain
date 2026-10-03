@@ -8,8 +8,9 @@ itself. Reading needs no such methods: `Reader` returns every type the same way.
 
 import datetime as dt
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
+from .documents import reference
 from .format import RecordError
 from .index import REVISABLE
 from .read import Reader
@@ -42,6 +43,7 @@ class Entries:
         description: str,
         body: str,
         entities: Sequence[str] = (),
+        documents: Sequence[Mapping[str, str]] = (),
         source: str | None = None,
     ) -> str:
         """Records a journal entry: an account of what happened. Returns its id.
@@ -49,9 +51,19 @@ class Entries:
         `entities` are the slugs of the entities the entry is about, each
         one an entity already recorded, or UnknownEntities is raised and
         nothing is written. Entities are never removed, so a slug found
-        here is still there when the entry is written.
+        here is still there when the entry is written. `documents` are the
+        filed documents the entry is about, each `{"path", "sha256"}` as
+        filing it returned, filed first so a pointer never points at nothing.
         """
         entities = self._known("entities", entities)
+        if isinstance(documents, (str, Mapping)) or not isinstance(documents, Sequence):
+            raise RecordError("documents must be a list")
+        documents = list({d["path"]: d for d in map(reference, documents)}.values())
+        details = {}
+        if entities:
+            details["entities"] = entities
+        if documents:
+            details["documents"] = documents
         return self.writer.write_entry(
             type="journal",
             version=JOURNAL_VERSION,
@@ -59,7 +71,7 @@ class Entries:
             description=description,
             body=body,
             source=source,
-            details={"entities": entities} if entities else {},
+            details=details,
         )
 
     def revise_journal(
