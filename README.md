@@ -14,13 +14,15 @@ You already tell Claude about your day: the mechanic's verdict, the new prescrip
 
 **July.** *"Actually, it was three drops, not four."* The mistake is corrected, and the original account is kept, so you can always see what was said and what was fixed.
 
+**August.** Planning your week with Claude, you mention the landlord agreed to fix the fence by Friday. Claude asks whether to record it, and does when you say yes.
+
 **September.** *"When were the brakes last looked at, and what did they say?"* Claude finds the March visit and the invoice, and answers in two sentences, offering the rest if you want it.
 
 **November.** *"What medications am I on now?"* Claude reads everything recorded about your medications, works out where each one stands today, and offers to save the answer, so asking again next month is instant.
 
 ## What it does
 
-- **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it.
+- **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it, and offers to record something worth keeping that you mention in passing.
 - **Files your documents.** Hand over an invoice, a lab report, or a folder of scans. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
 - **Answers from the record.** What happened, how things stand now, what changed, and when. Answers are short, and the detail is there when you ask for it.
 - **Keeps corrections honest.** Nothing is ever edited away. A correction is recorded beside the original, and every later answer reflects it.
@@ -54,11 +56,11 @@ When the plugin is enabled, Claude Code asks for your Brain folder. Choose a fol
 
 The plugin needs Python 3.11 or later on the machine: `python3` or `python` on macOS and Linux, `python` or `py` on Windows. The first session after installing or updating it downloads what the plugin needs, which takes about 20 seconds and needs a connection.
 
-AI.Brain is in development. Recording, searching, correcting, and filing documents work today; the skills that guide Claude's journaling and answering are being written.
+AI.Brain is in development.
 
 ## Learn more
 
-- [The skills](docs/skills.md): the judgment Claude brings to filing a document.
+- [The skills](docs/skills.md): the judgment Claude brings to recording, answering, and filing.
 - [The core module](docs/core-module.md): how the record is kept, written, and read back.
 - [The MCP server](docs/mcp-server.md): how Claude reaches the Brain, and how the plugin prepares the machine to run it.
 - [Development](docs/development.md): running the tests and the plugin from a working copy.

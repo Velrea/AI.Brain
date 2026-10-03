@@ -36,12 +36,11 @@ Call `store_document` with `move: true`, so one copy remains and it is the filed
 
 ## Write the entry
 
-Write one journal entry through `write_journal`:
+Write one journal entry through `write_journal`, finding its subjects and writing its description the way the `journal` skill does, with these for a document:
 
-- **entities:** pass every subject the document names to `resolve` at once, reuse an entity that matches, and write one with `write_entity` only when none does.
 - **event_date:** the date of the event the document records.
-- **description:** a line someone can decide from without opening the entry, such as "Oil change at 48k, rear brakes flagged as worn", not "Invoice".
-- **body:** the document's contents, as close to all of them as is useful, in Markdown. Leave out what does not bear on it, such as boilerplate and copyright notices.
+- **description:** what the document says that matters, such as "Oil change at 48k, rear brakes flagged as worn", not "Invoice".
+- **body:** the document's contents, as close to all of them as is useful, in Markdown. Leave out what does not bear on it, such as boilerplate and copyright notices, and keep only the last digits of an account, card, or government number.
 - **documents:** what `store_document` returned, exactly.
 - **source:** how the document arrived, such as `email` or `scan`, when known.
 
