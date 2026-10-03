@@ -41,7 +41,7 @@ python -m venv .venv
 ```
 
 ```bash
-.venv/Scripts/python -m pip install --require-hashes -r plugin/requirements.txt
+.venv/Scripts/python -m pip install -r plugin/requirements.txt
 ```
 
 ```bash
@@ -54,10 +54,10 @@ python -m venv .venv
 
 Run the plugin under development with `claude --plugin-dir plugin`.
 
-`plugin/requirements.txt` pins every package the server needs, with its hashes, for every platform. To change a pin, regenerate it with [uv](https://docs.astral.sh/uv/):
+`plugin/requirements.txt` pins every package the server needs to an exact version, for every platform. Dependabot opens a pull request each week bumping the pins, and one for a security fix as soon as it is published; the tests run on it before it merges. To regenerate the pins by hand, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
-echo "mcp==2.3.0" | uv pip compile - --universal --generate-hashes --python-version 3.11 --no-header --no-annotate -o plugin/requirements.txt
+echo "mcp==2.3.0" | uv pip compile - --universal --python-version 3.11 --no-header --no-annotate -o plugin/requirements.txt
 ```
 
 On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request runs the same tests on Windows, Linux, and macOS, and cannot merge until they pass.

@@ -51,7 +51,7 @@ def prepare(data: Path, requirements: Path = REQUIREMENTS) -> Path:
         shutil.rmtree(venv, ignore_errors=True)
         _run([sys.executable, "-m", "venv", str(venv)])
         _run([
-            str(python), "-m", "pip", "install", "--require-hashes", "--no-input",
+            str(python), "-m", "pip", "install", "--no-input",
             "--disable-pip-version-check", "--quiet", "-r", str(requirements),
         ])
         # Written last: an environment without it is one a crash left half built.
