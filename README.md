@@ -2,41 +2,54 @@
 
 **Remember everything you choose to.** Tell Claude what happened. Hand it the documents. Ask it anything later.
 
-You already tell Claude what is going on: the decision from this morning's meeting, the vendor's new quote, what the mechanic said. Then the conversation ends, and it is gone. AI.Brain gives Claude a journal to keep it in. Claude writes down whatever you want to remember, at work or at home, files the documents that go with it, and answers questions about it months or years later, from what was actually recorded rather than from what anyone remembers.
-
-## A year with a Brain
-
-**March.** After a meeting you tell Claude: *"We picked the Zephyr design for the billing service. Sherlock owns the migration plan, due April 15. Still open: who signs off on the cutover."* Claude asks who else was there, then records the decision, the action item, and the open question.
-
-**March, a minute later.** *"File this,"* with the signed vendor contract attached. Claude reads it, files it beside your other contracts with that vendor, and writes down what it says, so its renewal terms can be found without opening it.
-
-**June.** Back from the shop: *"Oil change on the blue hatchback. They said the rear brakes are getting thin."* Recorded, under the car.
-
-**July.** *"Actually, the migration plan is due the 22nd, not the 15th."* The mistake is corrected, and the original account is kept, so you can always see what was said and what was fixed.
-
-**August.** Planning your week with Claude, you mention the landlord agreed to fix the fence by Friday. Claude asks whether to record it, and does when you say yes.
-
-**September.** *"What did we agree with the vendor about renewal?"* Claude finds the contract's entry and the meeting where it came up, and answers in two sentences, offering the rest if you want it.
-
-**November.** *"What's still open on the billing migration?"* Claude reads everything recorded about it, works out what is done and what is not, and offers to save the answer, so asking again next month is instant.
+AI.Brain gives Claude a journal to keep. Claude records whatever you tell it, files the documents that go with it, and answers questions about it months or years later, from what was recorded rather than from what anyone remembers.
 
 ## What it does
 
 - **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it, and offers to record something worth keeping that you mention in passing.
-- **Files your documents.** Hand over a contract, a spec, an invoice, or a folder of scans. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
+- **Files your documents.** Hand over a document or a folder of them. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
 - **Answers from the record.** What happened, what was decided, how things stand now, what changed, and when. Answers are short, and the detail is there when you ask for it.
 - **Keeps corrections honest.** Nothing is ever edited away. A correction is recorded beside the original, and every later answer reflects it.
-- **Stays yours.** Everything lives in a folder you choose, as plain files. Put it in a synced folder, and every machine you use shares one Brain.
+- **Stays yours.** Everything lives in a folder you choose, as plain files. Put it in a synced folder, and every machine you point at it shares that Brain. Each Brain is its own folder and its own record: put everything in one, or keep separate Brains for what you want kept apart.
 
-## How you use it
+## At home
 
-You talk to Claude the way you would anyway. Some things to try:
+Record:
 
-- *"Journal this: the design review moved to Thursday, and we're dropping the export feature from this release."*
-- *"File this document."* or *"File everything in my Downloads/scans folder."*
-- *"What did we decide about the export feature, and why?"*
-- *"What action items do I still owe from last week's meetings?"*
-- *"That's wrong, the review was on the 12th."*
+- *"Journal this: Dr. Jekyll moved me to four drops of Zorblax a day, starting tomorrow."*
+- *"I had coffee with Bob at the Rusty Anchor today. He recommended a contractor named Hal for the kitchen."*
+
+File:
+
+- *"File this,"* with the contractor's quote attached.
+- *"File everything in my scans folder."*
+
+Ask:
+
+- *"What medications am I taking right now, and who prescribed each one?"*
+- *"Where did I meet Bob last month, and what did we talk about?"*
+- *"Who was that contractor Bob recommended?"*
+- *"How much have we spent on the kitchen remodel so far, and on what?"*
+- *"Which cities did we visit on our trip to Narnia?"*
+
+## At work
+
+Record:
+
+- *"Journal this: in the design review we picked the Zephyr design for billing. Sherlock owns the migration plan, due April 15. Still open: who signs off on the cutover."*
+- *"Correct that: the migration plan is due the 22nd."*
+
+File:
+
+- *"File this,"* with the signed vendor contract attached.
+- *"File the specs in this folder."*
+
+Ask:
+
+- *"What did we decide in Tuesday's design review, and why?"*
+- *"What action items do I still owe from this week's meetings?"*
+- *"Who asked about the export API, and what did I tell them?"*
+- *"What's still open on the billing migration?"*
 
 When Claude files a document somewhere new, it suggests where it should go and lets you choose. Once something like it has been filed, the next one goes beside it without asking.
 
