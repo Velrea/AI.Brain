@@ -24,8 +24,8 @@ class Clock:
 
 def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, brain_dir):
     details = {"odometer": 48210, "parts": ["oil", "filter"]}
-    full_id = writer.write_entry(**entry(source="voice", details=details))
-    bare_id = writer.write_entry(**entry())
+    full_id = writer.write(**entry(source="voice", details=details))
+    bare_id = writer.write(**entry())
 
     [path] = event_files(brain_dir)
     full, bare = records_of(path)
@@ -40,33 +40,34 @@ def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, brain_d
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"description": " "}, {"body": chr(0xD800)}, {"body": ""}, {"entry": "not-an-id", "body": ""}],
+    [{"description": " "}, {"body": chr(0xD800)}, {"body": ""}, {"entry": "not-an-id", "body": "Amended."},
+     {"slug": None}],
     ids=["blank description", "text that is not valid Unicode", "an original with no body",
-         "a revision naming no entry"],
+         "a revision naming no entry", "an original with no slug"],
 )
 def test_a_rejected_entry_writes_nothing(writer, brain_dir, overrides):
     with pytest.raises(RecordError):
-        writer.write_entry(**entry(**overrides))
+        writer.write(**entry(**overrides))
     assert event_files(brain_dir) == []
 
 
 def test_ids_order_as_written_even_within_one_millisecond(brain_dir, data_dir):
     clock = Clock()
-    ids = [Writer(brain_dir, data_dir, clock=clock).write_entry(**entry()) for _ in range(3)]
+    ids = [Writer(brain_dir, data_dir, clock=clock).write(**entry()) for _ in range(3)]
     writer = Writer(brain_dir, data_dir, clock=clock)
-    ids += [writer.write_entry(**entry()) for _ in range(30)]
+    ids += [writer.write(**entry()) for _ in range(30)]
 
     assert ids == sorted(ids)
     assert len(set(ids)) == len(ids)
 
 
 def test_a_torn_last_line_is_ended_before_the_next_append(writer, brain_dir):
-    writer.write_entry(**entry(description="first"))
+    writer.write(**entry(description="first"))
     [path] = event_files(brain_dir)
     with open(path, "ab") as file:
         file.write(b'{"id":"0199a8c4-torn","type":"jou')
 
-    writer.write_entry(**entry(description="after"))
+    writer.write(**entry(description="after"))
 
     first, torn, after = lines_of(path)
     assert torn == b'{"id":"0199a8c4-torn","type":"jou'
@@ -77,7 +78,7 @@ def test_a_torn_last_line_is_ended_before_the_next_append(writer, brain_dir):
 def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, brain_dir, monkeypatch):
     monkeypatch.setattr(brain.write, "ROLL_LINES", 3)
     for n in range(7):
-        writer.write_entry(**entry(description=f"entry {n}"))
+        writer.write(**entry(description=f"entry {n}"))
 
     assert sorted(len(records_of(f)) for f in event_files(brain_dir)) == [1, 3, 3]
 
@@ -85,11 +86,11 @@ def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, brain_
 def test_a_file_seven_days_old_is_left_for_a_new_one(brain_dir, data_dir):
     clock = Clock()
     writer = Writer(brain_dir, data_dir, clock=clock)
-    writer.write_entry(**entry(description="day 0"))
+    writer.write(**entry(description="day 0"))
     clock.now = T0 + dt.timedelta(days=6, hours=23)
-    writer.write_entry(**entry(description="day 6"))
+    writer.write(**entry(description="day 6"))
     clock.now = T0 + dt.timedelta(days=7)
-    writer.write_entry(**entry(description="day 7"))
+    writer.write(**entry(description="day 7"))
 
     old, new = event_files(brain_dir)
     assert [r["description"] for r in records_of(old)] == ["day 0", "day 6"]
@@ -98,11 +99,11 @@ def test_a_file_seven_days_old_is_left_for_a_new_one(brain_dir, data_dir):
 
 
 def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, brain_dir):
-    writer.write_entry(**entry())
+    writer.write(**entry())
     [path] = event_files(brain_dir)
     path.unlink()
 
-    writer.write_entry(**entry(description="after"))
+    writer.write(**entry(description="after"))
 
     [new] = event_files(brain_dir)
     assert new != path
@@ -110,12 +111,12 @@ def test_a_machine_whose_file_is_gone_starts_a_new_one(writer, brain_dir):
 
 
 def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, brain_dir, data_dir):
-    writer.write_entry(**entry(description="before"))
+    writer.write(**entry(description="before"))
     [path] = event_files(brain_dir)
     for file in data_dir.glob("*.json"):
         file.unlink()
 
-    writer.write_entry(**entry(description="after"))
+    writer.write(**entry(description="after"))
 
     assert [r["description"] for r in records_of(path)] == ["before"]
     [new] = [f for f in event_files(brain_dir) if f != path]
@@ -123,9 +124,9 @@ def test_a_machine_whose_state_is_missing_starts_a_new_file(writer, brain_dir, d
 
 
 def test_a_machine_never_appends_to_a_file_it_did_not_create(brain_dir, tmp_path):
-    Writer(brain_dir, tmp_path / "machine a").write_entry(**entry(description="a"))
-    Writer(brain_dir, tmp_path / "machine b").write_entry(**entry(description="b"))
-    Writer(brain_dir, tmp_path / "machine a").write_entry(**entry(description="a again"))
+    Writer(brain_dir, tmp_path / "machine a").write(**entry(description="a"))
+    Writer(brain_dir, tmp_path / "machine b").write(**entry(description="b"))
+    Writer(brain_dir, tmp_path / "machine a").write(**entry(description="a again"))
 
     by_file = sorted([r["description"] for r in records_of(path)] for path in event_files(brain_dir))
     assert by_file == [["a", "a again"], ["b"]]
@@ -133,9 +134,9 @@ def test_a_machine_never_appends_to_a_file_it_did_not_create(brain_dir, tmp_path
 
 def test_two_brains_on_one_machine_keep_separate_state(tmp_path, data_dir):
     first, second = tmp_path / "first", tmp_path / "second"
-    Writer(first, data_dir).write_entry(**entry(description="first"))
-    Writer(second, data_dir).write_entry(**entry(description="second"))
-    Writer(first, data_dir).write_entry(**entry(description="first again"))
+    Writer(first, data_dir).write(**entry(description="first"))
+    Writer(second, data_dir).write(**entry(description="second"))
+    Writer(first, data_dir).write(**entry(description="first again"))
 
     [path] = event_files(first)
     assert [r["description"] for r in records_of(path)] == ["first", "first again"]
@@ -147,7 +148,7 @@ from brain.write import Writer
 brain_dir, data_dir, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 writer = Writer(brain_dir, data_dir)
 for n in range(count):
-    writer.write_entry(type="journal", version=1, event_date="2026-09-14",
+    writer.write(type="journal", version=1, event_date="2026-09-14", slug=f"{name}-{n}",
                        description=f"{name} {n}", body=name * 5000)
 """
 

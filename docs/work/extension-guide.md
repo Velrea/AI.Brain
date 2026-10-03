@@ -16,7 +16,3 @@ Journal entries, entities, snapshots, and filed documents, with search and read 
 ## Done when
 
 - A person can read how to build a skill on the Brain: how to define its type, what to record as entries and entities, how to find and fold its records back, and what to leave alone.
-
-## Depends on
-
-- Unified entries

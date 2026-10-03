@@ -3,6 +3,8 @@ import time
 
 import pytest
 
+import brain.index
+from brain.index import FileHeld
 from brain.lock import LockTimeout
 from brain.write import AppendBlocked, Writer
 
@@ -25,12 +27,12 @@ def hold_lock(path, seconds):
 
 def test_a_session_that_cannot_take_the_lock_gets_an_error(brain_dir, data_dir):
     writer = Writer(brain_dir, data_dir, lock_timeout=0.5)
-    writer.write_entry(**entry())
+    writer.write(**entry())
     holder = hold_lock(writer._lock.path, 30)
     try:
         started = time.monotonic()
         with pytest.raises(LockTimeout):
-            writer.write_entry(**entry(description="waits"))
+            writer.write(**entry(description="waits"))
         assert 0.4 < time.monotonic() - started < 5
     finally:
         holder.kill()
@@ -43,7 +45,7 @@ def test_a_session_waits_while_the_lock_is_held_briefly(brain_dir, data_dir):
     writer = Writer(brain_dir, data_dir, lock_timeout=10)
     holder = hold_lock(writer._lock.path, 0.5)
     try:
-        writer.write_entry(**entry())
+        writer.write(**entry())
     finally:
         holder.wait()
     assert len(event_files(brain_dir)) == 1
@@ -55,7 +57,7 @@ def test_a_process_that_dies_holding_the_lock_blocks_nothing(brain_dir, data_dir
     holder.kill()
     holder.wait()
 
-    writer.write_entry(**entry())
+    writer.write(**entry())
 
     assert writer._lock.path.exists()
     assert len(event_files(brain_dir)) == 1
@@ -68,14 +70,14 @@ windows_only = pytest.mark.skipif(
 
 @windows_only
 def test_an_append_blocked_by_another_process_retries_until_released(brain_dir, data_dir):
-    """The sync service stands in as a process that holds the file open and shares nothing."""
+    """A process standing in for a sync service holds the file open, sharing only reads."""
     writer = Writer(brain_dir, data_dir)
-    writer.write_entry(**entry(description="first"))
+    writer.write(**entry(description="first"))
     [path] = event_files(brain_dir)
-    holder = hold_exclusively(path, 1.0)
+    holder = hold_exclusively(path, 1.0, SHARE_READ)
     try:
         started = time.monotonic()
-        writer.write_entry(**entry(description="second"))
+        writer.write(**entry(description="second"))
         assert time.monotonic() - started > 0.5
     finally:
         holder.wait()
@@ -85,24 +87,63 @@ def test_an_append_blocked_by_another_process_retries_until_released(brain_dir, 
 @windows_only
 def test_an_append_blocked_past_the_retries_gets_an_error(brain_dir, data_dir):
     writer = Writer(brain_dir, data_dir, append_retry=0.5)
-    writer.write_entry(**entry(description="first"))
+    writer.write(**entry(description="first"))
     [path] = event_files(brain_dir)
-    holder = hold_exclusively(path, 2)
+    holder = hold_exclusively(path, 2, SHARE_READ)
     try:
         with pytest.raises(AppendBlocked):
-            writer.write_entry(**entry(description="second"))
+            writer.write(**entry(description="second"))
     finally:
         holder.wait()
     assert [r["description"] for r in records_of(path)] == ["first"]
 
+
+@windows_only
+def test_a_read_of_a_file_another_process_holds_retries_until_released(writer, other_machine, reader, brain_dir):
+    """A process standing in for a sync service holds the file open, sharing nothing, not even reads."""
+    writer.write(**entry(description="ours"))
+    other_machine.write(**entry(description="theirs"))
+    [theirs] = [path for path in event_files(brain_dir) if b"theirs" in path.read_bytes()]
+    holder = hold_exclusively(theirs, 1.0, SHARE_NOTHING)
+    try:
+        started = time.monotonic()
+        assert sorted(hit.description for hit in reader.search()) == ["ours", "theirs"]
+        assert time.monotonic() - started > 0.5
+    finally:
+        holder.wait()
+
+
+@windows_only
+def test_a_read_of_a_file_held_past_the_retries_fails_and_takes_in_nothing_of_it(
+    writer, other_machine, reader, brain_dir, monkeypatch
+):
+    monkeypatch.setattr(brain.index, "READ_RETRY", 0.5)
+    writer.write(**entry(description="ours"))
+    other_machine.write(**entry(description="theirs"))
+    [theirs] = [path for path in event_files(brain_dir) if b"theirs" in path.read_bytes()]
+    holder = hold_exclusively(theirs, 2, SHARE_NOTHING)
+    try:
+        with pytest.raises(FileHeld, match=theirs.name):
+            reader.search()
+        # A write checks against the index first, so it fails the same way, writing nothing.
+        with pytest.raises(FileHeld):
+            writer.write(**entry(description="ours again"))
+    finally:
+        holder.wait()
+
+    # Nothing past what was taken in was skipped: once released, the file is taken in whole.
+    assert sorted(hit.description for hit in reader.search()) == ["ours", "theirs"]
+
+
+SHARE_NOTHING, SHARE_READ = 0, 1
 
 HOLD_EXCLUSIVELY = """
 import ctypes, sys, time
 from ctypes import wintypes
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 kernel32.CreateFileW.restype = wintypes.HANDLE
-GENERIC_READ, OPEN_EXISTING, NO_SHARING = 0x80000000, 3, 0
-handle = kernel32.CreateFileW(sys.argv[1], GENERIC_READ, NO_SHARING, None, OPEN_EXISTING, 0, None)
+GENERIC_READ, OPEN_EXISTING = 0x80000000, 3
+handle = kernel32.CreateFileW(sys.argv[1], GENERIC_READ, int(sys.argv[3]), None, OPEN_EXISTING, 0, None)
 if handle == wintypes.HANDLE(-1).value:
     raise ctypes.WinError(ctypes.get_last_error())
 print("held", flush=True)
@@ -111,7 +152,8 @@ kernel32.CloseHandle(handle)
 """
 
 
-def hold_exclusively(path, seconds):
-    proc = python(HOLD_EXCLUSIVELY, str(path), str(seconds))
+def hold_exclusively(path, seconds, share):
+    """Holds `path` open from another process for `seconds`, sharing only what `share` allows."""
+    proc = python(HOLD_EXCLUSIVELY, str(path), str(seconds), str(share))
     assert proc.stdout.readline().strip() == "held", proc.stderr.read()
     return proc

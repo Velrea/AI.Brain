@@ -6,7 +6,9 @@ folder and installs the pinned packages of `requirements.txt` into it, again
 only when they change; the plugin's SessionStart hook runs it as a session
 opens. With no argument, it prepares the same way, then starts the server in
 that environment. Nothing goes to stdout, which is the server's channel to
-its host and, for the hook, context for the model.
+its host and, for the hook, context for the model. `run <script> [args]` runs
+a skill's own script, standard library only, on the same Python, so a skill
+reaches Python the same way on every machine; its output is the script's.
 """
 
 import os
@@ -76,8 +78,14 @@ def _run(command: list[str]) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "serve"
+    if command == "run":
+        # A skill's own script, standard library only, on this machine's Python.
+        if len(argv) < 3:
+            print("Brain: run needs the script to run", file=sys.stderr)
+            return 2
+        return subprocess.run([sys.executable, *argv[2:]]).returncode
     if command not in ("prepare", "serve"):
-        print(f"Brain: unknown command {command!r}; use prepare, or none to serve", file=sys.stderr)
+        print(f"Brain: unknown command {command!r}; use prepare, run, or none to serve", file=sys.stderr)
         return 2
     try:
         data, why = data_dir(None)

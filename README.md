@@ -26,7 +26,7 @@ File:
 
 Ask:
 
-- *"What medications am I taking right now, and who prescribed each one?"*
+- *"When is the hatchback due for its next service, and what did the last one find?"*
 - *"Where did I meet Bob last month, and what did we talk about?"*
 - *"Who was that contractor Bob recommended?"*
 - *"How much have we spent on the kitchen remodel so far, and on what?"*
