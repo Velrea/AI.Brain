@@ -27,6 +27,8 @@ The Brain stores one thing, an entry, and a journal entry, an entity, and a snap
 - Slugs and aliases accumulate across revisions rather than the newest replacing them, so two machines adding names before they sync lose neither.
 - A journal entry's slug is its date and a few words.
 - A snapshot keeps its scope as a field of its own, since each new snapshot of a question is a new entry and creating refuses a slug already recorded; or its slug carries its date.
+- A filed document is an entry of type `document`, defined by its skill like any other type, with its path and `sha256` among its own fields. A journal entry links to it by slug rather than carrying a list of documents, a search by its fields finds it, replacing search's parameter for documents, and a changed document is a revision of its entry naming the new `sha256`. The intake skill defines the type.
+- Filing stays an operation of its own, beside write, search, and read: moving a file into the documents folder, hashing it, and refusing contents already filed is work on the disk that no record can do. Listing a folder of documents may become a search of document entries by path.
 - The core module still checks the fields the index reads: slugs, links, and aliases.
 - A listing of the types and entities in use, with how many entries each has, shows a skill or a model what exists, and helps spot duplicates.
 - An audit pass, a dreaming pass, looks through the entities for duplicates and proposes merges.
