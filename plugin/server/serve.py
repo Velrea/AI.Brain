@@ -23,6 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from brain.format import RecordError
+from brain.index import FileHeld
 from brain.lock import LockTimeout
 from brain.read import Reader
 from brain.write import AppendBlocked, Writer
@@ -41,7 +42,7 @@ READS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
 # Failures the model can put right, or retry: each comes back as an error result.
-_ANTICIPATED = (RecordError, ValueError, LockTimeout, AppendBlocked)
+_ANTICIPATED = (RecordError, ValueError, LockTimeout, AppendBlocked, FileHeld)
 
 
 def _tool(fn: Callable[..., Any]) -> Callable[..., str]:

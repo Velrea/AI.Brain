@@ -16,6 +16,7 @@ import functools
 import json
 import os
 import sqlite3
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -31,6 +32,9 @@ BUSY_TIMEOUT = 30.0
 
 CACHE_KB = 64 * 1024
 """The most memory, in KiB, a connection's page cache holds."""
+
+READ_RETRY = 10.0
+"""Seconds a read of an event file another process holds keeps retrying."""
 
 _TABLES = ("files", "records", "entries", "slugs", "links", "forms", "words")
 
@@ -95,6 +99,11 @@ _SCHEMA = (
 
 class IndexUnavailable(RuntimeError):
     """This Python's SQLite cannot hold the index."""
+
+
+class FileHeld(OSError):
+    """An event file stayed held by another process past the retries, so the index
+    could not take it in, and nothing was answered without it."""
 
 
 class Index:
@@ -188,14 +197,9 @@ class Index:
             # Read under the lock, so two sessions never take in the same lines.
             row = con.execute("SELECT offset FROM files WHERE name = ?", (name,)).fetchone()
             offset = row[0] if row else 0
-            try:
-                with open(self.events / name, "rb") as file:
-                    file.seek(offset)
-                    data = file.read()
-            except FileNotFoundError:
+            data = _read_from(self.events / name, offset)
+            if data is None:
                 return  # Gone since it was listed; the next read rebuilds.
-            except PermissionError:
-                return  # Held open by another process, such as a sync service; a later read takes it in.
             end = data.rfind(b"\n") + 1
             if not end:
                 return  # Only part of a line so far: a write in progress, or a torn line.
@@ -244,6 +248,29 @@ def _transaction(con: sqlite3.Connection) -> Iterator[None]:
         con.execute("ROLLBACK")
         raise
     con.execute("COMMIT")
+
+
+def _read_from(path: Path, offset: int) -> bytes | None:
+    """The bytes of `path` past `offset`, or None when it is gone. A file another
+    process holds open without sharing it, as a sync service can on Windows, is
+    retried with backoff, then raises FileHeld."""
+    deadline = time.monotonic() + READ_RETRY
+    delay = 0.05
+    while True:
+        try:
+            with open(path, "rb") as file:
+                file.seek(offset)
+                return file.read()
+        except FileNotFoundError:
+            return None
+        except PermissionError as error:
+            if time.monotonic() >= deadline:
+                raise FileHeld(
+                    f"the event file {path.name} stayed held by another process, such as a sync service, for"
+                    f" {READ_RETRY:g} seconds, so the index could not take it in: try again shortly"
+                ) from error
+            time.sleep(delay)
+            delay = min(delay * 2, 1.0)
 
 
 def _lost(listed: dict[str, int], taken: dict[str, int]) -> bool:
