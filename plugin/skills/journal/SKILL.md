@@ -44,7 +44,17 @@ Call `write_journal`:
 - **entities:** the slugs resolved above.
 - **source:** how it arrived, such as `voice` or `email`, when known.
 
-A document the user hands over is filed through the `intake` skill, which writes its entry. An entry about a document already filed carries the document's contents, as close to all of them as is useful, and names it by the path and `sha256` it was filed with. A document that changes later is a new event: a new entry naming its new `sha256`, so the old entry's hash still says what the document was when it was written.
+## An entry about a document
+
+A document handed over to keep is filed first, through the `intake` skill, which then records it here. An entry about a filed document follows everything above, with the document as the account: ask only about what it leaves unclear.
+
+- **event_date:** the date of the event the document records, such as the visit's or the invoice's, not the day it was filed.
+- **description:** what the document says that matters, such as "Oil change at 48k, rear brakes flagged as worn", not "Invoice".
+- **body:** the document's contents, as close to all of them as is useful, in Markdown. Leave out what does not bear on it, such as boilerplate and copyright notices.
+- **documents:** the path and `sha256` it was filed with, exactly as `store_document` returned them. Documents about one event, such as a visit's lab report and its bill, share one entry naming each.
+- **source:** how the document arrived, such as `email` or `scan`, when known.
+
+A document that changes later is a new event: a new entry naming its new `sha256`, so the old entry's hash still says what the document was when it was written.
 
 ## Corrections and new information
 

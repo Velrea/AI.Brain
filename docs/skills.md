@@ -19,7 +19,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry the judgment the tools
 - **The description is written for triage**, such as "Oil change at 48k, rear brakes flagged as worn" rather than "Oil change". A search returns only lean hits, so the description decides whether an entry is read, and it is written once, by a model looking at that entry alone.
 - **Entities are resolved before writing**, every subject at once, including the broad subject an entry falls under, so a question about the whole subject finds it. A match that is plausible but uncertain goes to the user: a wrong match merges two real things, and a needless new entity splits one.
 - **A correction and new information are separate writes.** A correction fixes what an entry recorded wrong and goes through `revise_journal` on that entry; new information about the same story is a new entry on its own date, connected by the entities it shares. One account that carries both produces both. Telling the parts apart means reading the whole account against the entry, which takes judgment, so the skill does it and no tool can.
-- **An entry about a document carries its contents** and names it by path and `sha256`. A document that later changes is a new event, recorded in a new entry naming its new `sha256`, so an old entry's hash still says what the document was when it was written.
+- **An entry about a document carries its contents** and names it by path and `sha256`. A search finds the entry and an answer folds it in, so the contents are in the record without opening the file; the file is there to go back to. A document that later changes is a new event, recorded in a new entry naming its new `sha256`, so an old entry's hash still says what the document was when it was written.
 
 ## Query
 
@@ -33,7 +33,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry the judgment the tools
 
 ## Intake
 
-Handed a file, `intake` reads it, chooses where it belongs with `list_documents`, files it with `store_document`, and records it with `write_journal`, writing the entry the way `journal` does.
+Handed a file, `intake` reads it, chooses where it belongs with `list_documents`, files it with `store_document`, and hands it to `journal`, which writes the entry about it.
 
 ```mermaid
 flowchart LR
@@ -43,14 +43,12 @@ flowchart LR
     fits -- no --> ask["Offer two or three paths,<br/>the recommended first"]
     ask --> file
     file -- "already named<br/>by an entry" --> skip["Skip it; the original<br/>stays where it is"]
-    file --> resolve["Resolve its subjects"]
-    resolve --> write["write_journal,<br/>naming the document"]
+    file --> write["journal writes the entry,<br/>naming the document"]
 ```
 
 - **The document moves, not a copy.** One copy remains, and it is the filed one, so a folder of documents to deal with empties as they are handled.
 - **The documents folder is organized for a person.** The user browses it by hand, so it grows in up to three levels a person would look through: a life area, the specific thing, and the kind of document, such as `assets/blue-hatchback/service/`. A file is named for the date of the event it records, then what it is, so a folder lists by when things happened. Where the folders in use follow a pattern of their own, the skill follows that instead.
 - **It asks only where nothing is like it.** A document whose like is already filed goes beside it without asking; otherwise the user picks from two or three paths, so placement stays the user's call without a question for every document.
-- **The entry carries the contents.** A search finds the entry and an answer folds it in, so the document's contents are in the record without opening the file; the file is there to go back to.
 - **A document is filed once.** `store_document` refuses contents an entry already names, so a duplicate is caught by the tool, not by the skill.
-- **A batch groups by event.** Documents about one event share an entry naming each; unrelated documents get entries of their own.
+- **The entry is the journal skill's.** Intake files; `journal` writes the entry, so an entry about a document reads like any other, and documents about one event share an entry naming each.
 - **A web page is never copied into the Brain.** The skill offers to journal what it says instead.

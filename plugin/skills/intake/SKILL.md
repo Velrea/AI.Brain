@@ -36,19 +36,11 @@ Call `store_document` with `move: true`, so one copy remains and it is the filed
 
 ## Write the entry
 
-Write one journal entry through `write_journal`, finding its subjects and writing its description the way the `journal` skill does, with these for a document:
-
-- **event_date:** the date of the event the document records.
-- **description:** what the document says that matters, such as "Oil change at 48k, rear brakes flagged as worn", not "Invoice".
-- **body:** the document's contents, as close to all of them as is useful, in Markdown. Leave out what does not bear on it, such as boilerplate and copyright notices, and keep only the last digits of an account, card, or government number.
-- **documents:** what `store_document` returned, exactly.
-- **source:** how the document arrived, such as `email` or `scan`, when known.
-
-If writing the entry fails after the document is filed, fix what the error names and write it again with what `store_document` returned. Never file the document again.
+Record the document through the `journal` skill, as an entry about a filed document, naming it by what `store_document` returned. If writing the entry fails after the document is filed, write it again with what `store_document` returned; never file the document again.
 
 ## A batch
 
-A folder handed over at once is filed one document at a time, each into its own place. Documents about the same event, such as a visit's lab report and its bill, share one entry naming each of them; unrelated documents get entries of their own.
+A folder handed over at once is filed one document at a time, each into its own place, then recorded through the `journal` skill, which gives documents about one event a single entry.
 
 ## A web address
 
