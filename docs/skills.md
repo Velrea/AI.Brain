@@ -19,6 +19,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry the judgment the tools
 - **The description is written for triage**, such as "Oil change at 48k, rear brakes flagged as worn" rather than "Oil change". A search returns only lean hits, so the description decides whether an entry is read, and it is written once, by a model looking at that entry alone.
 - **Entities are resolved before writing**, every subject at once, including the broad subject an entry falls under, so a question about the whole subject finds it. A match that is plausible but uncertain goes to the user: a wrong match merges two real things, and a needless new entity splits one.
 - **A correction and new information are separate writes.** A correction fixes what an entry recorded wrong and goes through `revise_journal` on that entry; new information about the same story is a new entry on its own date, connected by the entities it shares. One account that carries both produces both. Telling the parts apart means reading the whole account against the entry, which takes judgment, so the skill does it and no tool can.
+- **An entry keeps every link or reference to where more of its account lives**, so a later query can follow it.
 - **An entry about a document carries its contents** and names it by path and `sha256`. A search finds the entry and an answer folds it in, so the contents are in the record without opening the file; the file is there to go back to. A document that later changes is a new event, recorded in a new entry naming its new `sha256`, so an old entry's hash still says what the document was when it was written.
 
 ## Query
@@ -29,6 +30,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry the judgment the tools
 - **It reads long entries a handful at a time.** `read` has no ceiling of its own, and a result too large to show inline costs the model turns to page through and room in what it can hold.
 - **A search past the ceiling is walked range by range** when an answer needs everything about a subject, folding as it reads rather than loading every body at once. That walk is an expensive fold, so it ends in an offered snapshot.
 - **It answers briefly and invites the follow-up.** An answer carries what it takes to answer the question and says where more is available, rather than synthesizing everything it read. Writing the answer took a third of all query time in testing, growing with its length.
+- **It goes beyond the Brain where the answer needs it.** Where the record points elsewhere, or the question needs facts it never held, the skill follows it to whatever other sources the session can reach and folds them in. It keeps the two apart in the answer, since the record holds what was known when it was written and another source holds what it says now, and it sends outside only what a lookup needs. What it finds is never recorded on its own: the journal skill offers it first.
 - **A snapshot is written only at the user's word**, built afresh from every matching entry. A later question starts from the latest snapshot and folds in what was recorded after it.
 
 ## Intake

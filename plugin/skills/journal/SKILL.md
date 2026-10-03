@@ -23,6 +23,7 @@ Read the newest entry like this one and follow its layout.
 
 - Date it the day it happened, one event per entry.
 - In the body: what happened, concretely, with every value exactly as given and everyone by name. Mark what was decided, who committed to what by when, and what was left open.
+- Keep every link or reference the account gives to where more of it lives.
 - Never write a secret in full; keep only enough of it to tell it apart.
 
 ## A document
