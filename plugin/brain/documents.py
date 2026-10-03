@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from .format import documents_dir
@@ -20,6 +21,7 @@ from .format import documents_dir
 # the folder to, and the names Windows keeps for devices.
 _FORBIDDEN = re.compile(r'[<>:"\\|?*\x00-\x1f]')
 _RESERVED = re.compile(r"(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class DocumentError(ValueError):
@@ -62,6 +64,17 @@ class Documents:
             with contextlib.suppress(FileNotFoundError):
                 temp.unlink()
         return {"path": path, "sha256": digest}
+
+
+def reference(document: object) -> dict:
+    """A filed document as an entry names it, `{"path": ..., "sha256": ...}`,
+    the shape `Documents.store` returns, each part checked."""
+    if not isinstance(document, Mapping) or set(document) != {"path", "sha256"}:
+        raise DocumentError('a document is named by {"path": ..., "sha256": ...}, as filing it returned')
+    _parts(document["path"])
+    if not isinstance(document["sha256"], str) or not _SHA256.fullmatch(document["sha256"]):
+        raise DocumentError(f"a document's sha256 is 64 lowercase hex characters: {document['sha256']!r}")
+    return {"path": document["path"], "sha256": document["sha256"]}
 
 
 def _parts(path: object) -> list[str]:

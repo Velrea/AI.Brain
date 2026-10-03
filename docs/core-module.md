@@ -163,7 +163,7 @@ Nothing extracts facts, such as a current dose, when an entry is written. Extrac
 
 ## Documents
 
-The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `car/2026-09-14 oil change invoice.pdf`, and returns the path and the copy's `sha256`; the original is left where it is. An entry names a document it is about by both.
+The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `car/2026-09-14 oil change invoice.pdf`, and returns the path and the copy's `sha256`; the original is left where it is. A journal entry names the documents it is about in `details.documents`, each by both, passed to `write_journal` exactly as `store` returned them, after they are filed, so a pointer never points at nothing.
 
 - **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there raises `DocumentError`, so a pointer to a document never comes to point at something else.
 - **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.

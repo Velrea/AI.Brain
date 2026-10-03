@@ -46,7 +46,7 @@ flowchart LR
 
 | Tool | Does |
 | --- | --- |
-| `write_journal` | records a journal entry and returns its id |
+| `write_journal` | records a journal entry, naming its entities and any filed documents, and returns its id |
 | `revise_journal` | revises a journal entry's description, event date, or entities, or adds an amendment, and returns the revision's id |
 | `write_entity` | records or restates an entity and returns its id |
 | `write_snapshot` | records a folded answer and returns its id |
@@ -59,4 +59,4 @@ Each supported type has a write tool of its own, over the core module's type met
 
 A failure the model can put right comes back as an error result carrying the core module's message, which says how: an unknown entity, a bad date or pattern, a search past the ceiling with the ranges to search instead, a document path that is taken, or a lock or file another process held too long. Any other failure is a crash, logged with its traceback, and the model sees only that the tool failed.
 
-A filed document is a copy of the file, kept in the Brain folder's `documents/` at its path, with its `sha256`, through the core module's [documents store](core-module.md#documents). An entry names a document it is about in its `details`, by path and `sha256`, filed first, so a pointer never points at nothing.
+A filed document is a copy of the file, kept in the Brain folder's `documents/` at its path, with its `sha256`, through the core module's [documents store](core-module.md#documents). An entry names the documents it is about through `write_journal`'s `documents`, each by path and `sha256` exactly as `store_document` returned them, filed first, so a pointer never points at nothing.

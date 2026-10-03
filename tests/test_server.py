@@ -116,8 +116,15 @@ def test_a_document_is_filed_and_named_by_an_entry(server, brain_dir, tmp_path):
         ("store_document", {"source": str(scan), "path": "car/invoice.pdf"}),
         ("store_document", {"source": str(scan), "path": "../invoice.pdf"}),
     )
+    journal, read = calls(
+        server,
+        ("write_journal", {"event_date": "2026-09-14", "description": "Oil change invoice",
+                           "body": "Invoice filed.", "documents": [filed]}),
+        ("search", {"details": {}, "pattern": "invoice"}),
+    )
 
     assert filed["path"] == "car/invoice.pdf" and len(filed["sha256"]) == 64
+    assert [hit["id"] for hit in read["hits"]] == [journal["id"]]
     assert (brain_dir / "documents" / "car" / "invoice.pdf").read_bytes() == b"%PDF invoice"
     assert refused[0] == "error" and "relative" in refused[1]
 

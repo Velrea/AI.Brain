@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 
+from brain.documents import DocumentError
 from brain.entries import UnknownEntities
 from brain.format import RecordError
 
@@ -62,6 +63,30 @@ def test_a_journal_naming_an_unrecorded_entity_is_refused(entries, brain_dir):
     assert refused.value.slugs == ["dr-jekyll", "mr-hyde"]
     [path] = event_files(brain_dir)
     assert [record["type"] for record in records_of(path)] == ["entity"]  # nothing written
+
+
+def test_a_journal_names_its_filed_documents_once_each(entries, brain_dir):
+    invoice = {"path": "car/invoice.pdf", "sha256": "a" * 64}
+    entries.write_journal(event_date="2026-09-14", description="Oil change", body="Oil changed.",
+                          documents=[invoice, dict(invoice)])
+
+    [path] = event_files(brain_dir)
+    [record] = records_of(path)
+    assert record["details"] == {"documents": [invoice]}
+
+
+@pytest.mark.parametrize("documents", [
+    [{"path": "car/invoice.pdf"}],
+    [{"path": "car/invoice.pdf", "sha256": "A" * 64}],
+    [{"path": "../invoice.pdf", "sha256": "a" * 64}],
+    [{"path": "car/invoice.pdf", "sha256": "a" * 64, "size": 3}],
+    ["car/invoice.pdf"],
+])
+def test_a_journal_naming_a_document_badly_is_refused(entries, brain_dir, documents):
+    with pytest.raises(DocumentError):
+        entries.write_journal(event_date="2026-09-14", description="Oil change", body="Oil changed.",
+                              documents=documents)
+    assert event_files(brain_dir) == []
 
 
 def test_an_entity_is_written_through_its_own_method(entries, brain_dir):

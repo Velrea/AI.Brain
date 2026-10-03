@@ -74,6 +74,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         description: str,
         body: str,
         entities: list[str] | None = None,
+        documents: list[dict[str, str]] | None = None,
         source: str | None = None,
     ) -> dict:
         """Records a journal entry, an account of something that happened, and returns {"id": ...}.
@@ -85,11 +86,13 @@ def build(brain: Path, data: Path) -> MCPServer:
         entities: slugs of the entities the entry is about, each one already
           recorded. Resolve each subject first; write an entity only when none
           matches. An unrecorded slug is refused and nothing is written.
+        documents: the filed documents the entry is about, each {"path": ..., "sha256": ...}
+          exactly as store_document returned it. File each document first.
         source: how the information arrived, such as voice or email.
         """
         return {"id": entries.write_journal(
             event_date=event_date, description=description, body=body,
-            entities=entities or [], source=source,
+            entities=entities or [], documents=documents or [], source=source,
         )}
 
     @server.tool(annotations=WRITES, structured_output=False)
@@ -228,7 +231,7 @@ def build(brain: Path, data: Path) -> MCPServer:
           between folders, such as "car/2026-09-14 oil change invoice.pdf".
         Filing the same contents at a path again returns it as it is; a path that
         already holds other contents is refused. File the document first, then
-        write the entry that names it in its details, by path and sha256.
+        pass what this returns in write_journal's documents.
         """
         return documents.store(Path(source), path)
 
