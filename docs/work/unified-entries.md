@@ -1,0 +1,43 @@
+# Unified entries
+
+Promoted from the idea Entity audit.
+
+The Brain stores one thing, an entry, and a journal entry, an entity, and a snapshot are each an entry of a type. Today the core module adds a write method per type and the MCP server a tool per type, and entities are a mechanism of their own, so a new use means changing both layers. Instead every entry has the same shape, a name, and links to other entries; the core module keeps only what every entry obeys; the server exposes the same few calls for every type; and each type is defined by the skill that writes it. A skill someone writes for their own use then records its own type with no change to the core module or the server. It is done now, while it is cheap: before real data and other skills depend on the per-type tools.
+
+## Decided
+
+- **The MCP server is the translation layer** between the core module and the model's context, and nothing more. It exposes the core module's generic calls, a tool each, and no tool for a particular type, so it is never extended for a new one.
+- **The per-type layer goes.** `write_journal`, `write_entity`, `write_snapshot`, and `revise_journal`, and the per-type methods over the generic write in the core module, give way to calls that take the type, its version, and the type's own fields.
+- **A skill defines its type.** It states the type and version as fixed values and has the model fill in the rest, succinctly. Journal, entity, and snapshot each have a skill that defines its type that way, and an extension is a skill that does the same.
+- **The core module keeps what every entry has**: its id, its type, the date the event happened, when it was recorded, its slugs, and its links; and snapshots, as a mechanism every use can lean on.
+- **The id is the identity.** The write path stamps each entry's UUIDv7, never the model.
+- **Every entry has a slug**, a unique name the model gives it.
+- **Entries link to entries by slug**, of any type, so a journal entry can link to another journal entry as well as to an entity. Links replace a journal entry's list of entities.
+- **Creating is a call of its own**, for something known to be new, and it refuses a slug already recorded.
+- **A correction is a revision of the entry's id**, for every type, kept as an augmentation of the original: the original stands, and the revision is read with it.
+- **An entry can carry more than one slug.** Two entries that turn out to be one thing, such as `meds` recorded beside `medication`, are merged by a revision that adds the old slug to the one kept. That is one record, revising none of the entries that link to the old slug, and the local index applies it when it builds, so entries linking to the old slug that sync in after the merge are covered with nothing more to write.
+- **Deciding that two entries are one thing is judgment.** The model decides; the index only applies what was recorded.
+- **Search finds by slug**, returning lean hits: each entry's id, slug, description, date, and the rest of what a hit carries now. Resolving names to entities is a search for entries of type entity, not a call of its own.
+
+## Suggested
+
+- The refusal of a slug already recorded names the entry holding it, so the model can revise that entry instead.
+- Search keeps what `resolve` matches today, so a name in any case, held whole as words, spelled alike, or given as an alias still finds its entry, and shows which name found which entries.
+- Two machines that each create one slug before they sync keep both entries; links by that slug find both, and a search shows both.
+- Slugs and aliases accumulate across revisions rather than the newest replacing them, so two machines adding names before they sync lose neither.
+- A journal entry's slug is its date and a few words.
+- A snapshot keeps its scope as a field of its own, since each new snapshot of a question is a new entry and creating refuses a slug already recorded; or its slug carries its date.
+- The core module still checks the fields the index reads: slugs, links, and aliases.
+- A listing of the types and entities in use, with how many entries each has, shows a skill or a model what exists, and helps spot duplicates.
+- An audit pass, a dreaming pass, looks through the entities for duplicates and proposes merges.
+- Guidance on writing a particular type, such as a description a reader can triage from, moves from the tool's description to that type's skill. An agent without the skills still writes valid entries, but no longer writes a journal entry the way the journal skill would.
+
+## Done when
+
+- The MCP server has no tool for a particular type and no `resolve`, and the core module has no write method for a particular type.
+- The journal, entity, and snapshot skills each record their type through the generic calls.
+- Creating refuses a slug already recorded.
+- A search by a slug finds the entry carrying it and every entry linking to it, whatever their types.
+- After a merge, a search by either slug finds every entry linking to either, including entries that sync in after the merge, and reading the old slug gives the entry kept.
+- An entry of a type nothing in the plugin knows can be created, revised, found by type and by its own fields, and read.
+- Every record already written reads as it did.
