@@ -1,22 +1,28 @@
-"""The write path: validates a record, stamps it, and appends it as one line.
+"""The write path: the one write for every type, which creates an entry or
+revises one, checks it, stamps it, and appends it as one line.
 
-Only this module writes the event files, and it checks only the shape of a
-record; what an entry must obey against what is already recorded is checked
-by `entries`. Each machine appends only to files
-it created, and sessions on one machine take turns through a lock in the
-machine's plugin data folder, outside the synced folders.
+What a type means is its skill's: the type and its version are the caller's
+to give, and its own fields go in `details`. What every entry obeys is checked
+here, against what the index holds: a new entry's slug is one no entry
+carries, each link names a slug some entry carries, and a revision names an
+entry of its own type. Only this module writes the event files. Each machine
+appends only to files it created, and sessions on one machine take turns
+through a lock in the machine's plugin data folder, outside the synced folders.
 """
 
 import datetime as dt
 import json
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .format import (
+    REVISABLE,
+    RecordError,
     brain_key,
     check_entry,
+    check_slug,
     encode,
     events_dir,
     file_created_at,
@@ -26,6 +32,7 @@ from .format import (
     uuid7_ms,
 )
 from .lock import FileLock
+from .read import Reader
 
 ROLL_LINES = 10_000
 ROLL_AGE = dt.timedelta(days=7)
@@ -41,16 +48,36 @@ class AppendBlocked(OSError):
     """The event file stayed blocked by another process past the retries."""
 
 
+class SlugTaken(RecordError):
+    """A new entry's slug is one an entry already carries."""
+
+    def __init__(self, slug: str, holders: list[tuple[str, str]]):
+        held = "; ".join(f"{id} ({description})" for id, description in holders)
+        super().__init__(
+            f"the slug {slug!r} is already recorded, by {held}: revise that entry with its id as entry,"
+            f" or give this one a slug of its own"
+        )
+        self.slug = slug
+
+
+class UnknownLinks(RecordError):
+    """An entry linked to slugs no entry carries."""
+
+    def __init__(self, slugs: list[str]):
+        super().__init__(f"no entry carries {', '.join(slugs)}: search for the slug, or create its entry first")
+        self.slugs = slugs
+
+
 def utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
 class Writer:
-    """Appends records to one Brain folder from this machine.
+    """Writes entries to one Brain folder from this machine.
 
     `data_dir` is this machine's own folder, never a synced one: the
-    plugin's data folder. It holds the lock file and the name of the file
-    this machine appends to.
+    plugin's data folder. It holds the lock file, the name of the file this
+    machine appends to, and the index the checks read.
     """
 
     def __init__(
@@ -69,8 +96,96 @@ class Writer:
         key = brain_key(self.brain_dir)
         self._state_path = Path(data_dir) / f"{key}.json"
         self._lock = FileLock(Path(data_dir) / f"{key}.lock", lock_timeout)
+        self.reader = Reader(self.brain_dir, data_dir)
 
-    def write_entry(
+    def write(
+        self,
+        *,
+        type: str,
+        version: int,
+        entry: str | None = None,
+        slug: str | None = None,
+        event_date: str | None = None,
+        description: str | None = None,
+        body: str | None = None,
+        links: Sequence[str] | None = None,
+        aliases: Sequence[str] = (),
+        details: Mapping | None = None,
+        source: str | None = None,
+    ) -> str:
+        """Creates an entry, or revises the one `entry` names, and returns the record's id.
+
+        To create, give `slug`, `event_date`, `description`, and `body`; a slug
+        an entry already carries raises SlugTaken. To revise, give `entry`, the
+        id of an entry of the same type, and what changes: `description`,
+        `event_date`, and `links` each replace the entry's; each field of
+        `details` replaces the entry's field of that name, a None removing it;
+        `slug` and `aliases` add to the entry's names, and a slug another entry
+        was created under merges that entry into this one; `body` is an
+        amendment kept under the entry's body, which is never replaced. A link
+        no entry carries raises UnknownLinks, and nothing is written. Slugs
+        are never removed, so a link found here still resolves when written.
+        Raises RecordError for a blank or invalid field, LockTimeout when
+        another session holds the lock too long, and AppendBlocked when the
+        file stays blocked past the retries.
+        """
+        aliases = _lines("aliases", aliases)
+        if links is not None:
+            links = self._linked(links)
+        if details is not None and not isinstance(details, Mapping):
+            raise RecordError("details must be an object of fields")
+        details = dict(details or {})
+        if entry is None:
+            check_slug("slug", slug)
+            if holders := self.reader.holders([slug]).get(slug):
+                raise SlugTaken(slug, holders)
+            return self._append(
+                type=type, version=version, event_date=event_date, description=description, body=body,
+                source=source, slugs=[slug], aliases=aliases, links=links or [], details=details,
+            )
+        if slug is not None:
+            check_slug("slug", slug)
+        given = {"description": description, "event_date": event_date, "links": links}
+        revises = [name for name in REVISABLE if given[name] is not None]
+        if not (revises or slug or aliases or details or body is not None):
+            raise RecordError("a revision must change the description, event date, links, slugs, aliases, or"
+                              " details, or add an amendment")
+        if body is not None and (not isinstance(body, str) or not body.strip()):
+            raise RecordError("an amendment must be non-empty text")
+        current = next(iter(self.reader.read([entry])), None)
+        if current is None:
+            raise RecordError(f"no entry has the id {entry!r}")
+        if current["type"] != type:
+            raise RecordError(f"entry {current['id']} is a {current['type']}, not a {type}")
+        return self._append(
+            entry=current["id"],
+            type=type,
+            version=version,
+            # Whole on its own: what it does not revise is the entry's as it stood.
+            event_date=current["event_date"] if event_date is None else event_date,
+            description=current["description"] if description is None else description,
+            body=body or "",
+            source=source,
+            slugs=[slug] if slug else [],
+            aliases=aliases,
+            links=current["links"] if links is None else links,
+            revises=revises,
+            details=details,
+        )
+
+    def _linked(self, links: object) -> list[str]:
+        """The links, each checked as a slug some entry carries."""
+        if isinstance(links, str) or not isinstance(links, Sequence):
+            raise RecordError("links must be a list")
+        links = list(dict.fromkeys(links))
+        for link in links:
+            check_slug("links", link)
+        missing = sorted(set(links) - set(self.reader.holders(links))) if links else []
+        if missing:
+            raise UnknownLinks(missing)
+        return links
+
+    def _append(
         self,
         *,
         entry: str | None = None,
@@ -86,16 +201,11 @@ class Writer:
         revises: list[str] | None = None,
         details: dict | None = None,
     ) -> str:
-        """Records an entry of any type and returns its id.
+        """Checks a record's shape, stamps it, and appends it, returning its id.
 
-        Callers write through `Entries.write`, which checks what every entry
-        obeys against what is already recorded. `id` and `recorded_at` are
-        stamped here, and `entry`, the entry the record belongs to, is its
-        own id unless it is given: a revision names the entry it revises,
-        and its body, an amendment, may be empty. Raises RecordError for a
-        blank or invalid field, LockTimeout when another session holds the
-        lock too long, and AppendBlocked when the file stays blocked past
-        the retries.
+        `id` and `recorded_at` are stamped here, and `entry`, the entry the
+        record belongs to, is its own id unless it is given: a revision names
+        the entry it revises, and its body, an amendment, may be empty.
         """
         lists = {
             "slugs": slugs or [], "aliases": aliases or [], "links": links or [], "revises": revises or [],
@@ -211,6 +321,16 @@ def _append(path: Path, data: bytes) -> None:
 
 def _utc_text(at: dt.datetime) -> str:
     return at.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _lines(name: str, values: object) -> list[str]:
+    """Each value checked as one line of text, once each, in the order given."""
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise RecordError(f"{name} must be a list")
+    for value in values:
+        if not isinstance(value, str) or not value.strip() or value.splitlines() != [value]:
+            raise RecordError(f"{name} must each be one line of non-empty text")
+    return list(dict.fromkeys(values))
 
 
 def _ends_with_newline(path: Path) -> bool:

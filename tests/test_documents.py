@@ -104,11 +104,11 @@ def test_an_original_that_cannot_be_removed_is_filed_and_reported(documents, bra
     assert invoice.exists()
 
 
-def test_contents_a_document_entry_names_are_refused_wherever_they_would_go(brain_dir, reader, entries, invoice):
+def test_contents_a_document_entry_names_are_refused_wherever_they_would_go(brain_dir, reader, writer, invoice):
     brain_dir.mkdir()
     documents = Documents(brain_dir, reader)
     filed = documents.store(invoice, "car/invoice.pdf")
-    entry_id = create(entries, "oil-change-invoice", type="document", description="Oil change invoice",
+    entry_id = create(writer, "oil-change-invoice", type="document", description="Oil change invoice",
                       details=filed)
 
     with pytest.raises(DocumentError, match="already filed at 'car/invoice.pdf'") as refused:
@@ -133,7 +133,7 @@ def test_a_brain_folder_that_does_not_exist_is_refused(tmp_path):
         Documents(tmp_path / "unmounted")
 
 
-def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, data_dir, entries, invoice, capsys):
+def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, data_dir, writer, invoice, capsys):
     brain_dir.mkdir()
     digest = hashlib.sha256(b"%PDF invoice").hexdigest()
     store = ["store", "--brain", str(brain_dir), "--data", str(data_dir), str(invoice)]
@@ -145,7 +145,7 @@ def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, da
     assert json.loads(capsys.readouterr().out) == {"folders": [{"name": "car", "documents": 1}], "documents": []}
 
     # Recorded by the entries this machine's server writes, through the same plugin data folder.
-    create(entries, "oil-change-invoice", type="document", details=filed)
+    create(writer, "oil-change-invoice", type="document", details=filed)
     assert main([*store, "car/copy.pdf", "--move"]) == 1
     printed = capsys.readouterr()
     assert printed.out == "" and "already filed" in printed.err

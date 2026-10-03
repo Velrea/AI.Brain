@@ -9,8 +9,7 @@ The core module knows no type of entry. Every entry has the same shape, a name, 
 | Module | Holds |
 | --- | --- |
 | [`format.py`](../plugin/brain/format.py) | The file format: the record's envelope and its checks, the one-line encoding, the folder layout, and file names. The read side imports it; it imports neither side. |
-| [`write.py`](../plugin/brain/write.py) | `Writer.write_entry`, which stamps a record and appends it. |
-| [`entries.py`](../plugin/brain/entries.py) | `Entries.write`, the one write for every type: it creates an entry or revises one, checking it against what is already recorded. |
+| [`write.py`](../plugin/brain/write.py) | `Writer.write`, the one write for every type: it creates an entry or revises one, checks it against what the index holds, stamps it, and appends it. |
 | [`index.py`](../plugin/brain/index.py) | The local index: the SQLite database this machine keeps of the files, caught up before every read. |
 | [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and entries by id. It reads through the index and imports the file format, never the write path. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
@@ -74,13 +73,13 @@ An entry can carry more than one slug. Two entries that turn out to be one thing
 
 ## Writing
 
-A caller writes through `Entries.write`, which takes the type, its version, and the type's own fields, and calls `Writer.write_entry`. The MCP server exposes `Entries.write`, never `write_entry`. Given no `entry`, it creates an entry, which needs a slug, an event date, a description, and a body. Given the id of an entry, it [revises](#revisions) that entry.
+The core module's three operations are `Writer.write`, `Reader.search`, and `Reader.read`, and the MCP server calls them directly. `Writer.write` takes the type, its version, and the type's own fields. Given no `entry`, it creates an entry, which needs a slug, an event date, a description, and a body. Given the id of an entry, it [revises](#revisions) that entry.
 
 It checks an entry against what is already recorded, before the lock: a new entry's slug must be one no entry carries, or it raises `SlugTaken`, naming the entry that carries it, so the caller can revise that one instead; each link must be a slug some entry carries, or it raises `UnknownLinks`, so an entry never links to nothing; and a revision must name an entry of its own type. Slugs are never removed, so a link found before the lock still resolves when it is written.
 
 ```mermaid
 flowchart LR
-    method["Entries.write"] --> check["Check the envelope,<br/>the slug, and the links"]
+    method["Writer.write"] --> check["Check the envelope,<br/>and the slug and links<br/>against the index"]
     check --> lock["Take the lock"]
     lock --> stamp["Stamp id, entry,<br/>and recorded_at"]
     stamp --> current["Find this machine's file:<br/>end a torn line,<br/>roll one that is due"]
@@ -94,7 +93,7 @@ flowchart LR
 - **This machine's file.** The `<key>.json` file names the file and its line count. A file that is gone, or a `<key>.json` that is missing or names another Brain folder, starts a new file; the machine never resumes a file it did not create.
 - **A torn last line**, left by a crash mid-append, is ended with a newline before the next append. The fragment is never truncated: cutting bytes from a file the sync service may be copying can lose data.
 - **Rolling.** A file rolls at 10,000 lines or 7 days old, by the time in its name. It is then sealed and never changes again, so a backup or a sync copies it once. The next append starts a new file. When a file rolls carries no meaning for a reader. Small files are never compacted into larger ones: the index reads a sealed file once, so how many there are barely matters to reading, and the sync service uploads a whole file on every change, so small files keep each upload small.
-- **The append** is one unbuffered write, synced to disk before `write_entry` returns.
+- **The append** is one unbuffered write, synced to disk before `write` returns.
 - **A blocked file.** An append that another process blocks, such as a sync service holding the file open, retries with backoff for up to 10 seconds under the lock, then raises `AppendBlocked`.
 
 The Brain relies on the sync service to carry files between machines and does not coordinate them, so minor loss at the sync boundary is accepted.
@@ -124,6 +123,7 @@ flowchart LR
 - **Each id once.** A record copied into two files is the same record, and is kept once.
 - **Settling.** The index keeps every record, and beside them each entry as it stands now: its original with its [revisions](#revisions) applied, and the entry it is merged into, if any. Only revisions collapse: every entry is its own row, and the files keep every record.
 - **A file that vanishes or shrinks** rebuilds the index, since it cannot tell which of its rows came only from that file.
+- **A file another process holds open**, as a sync service can on Windows, is taken in on a later read, so a read or a write's check never fails on it; a check made meanwhile can let a slug that file carries be recorded again, and the index keeps both entries.
 - **Sessions.** Sessions on one machine share the index. Its write-ahead log lets them read while another takes in a file, and one waits up to 30 seconds for another to finish taking in. A change to the index's own layout names a new file, so sessions running two versions of the plugin never rebuild each other's.
 - **SQLite is Python's own**, so the plugin pins no database package. It must include FTS5 full-text search and JSON, as the builds from python.org and most Linux distributions do; without them a read raises `IndexUnavailable`.
 
@@ -142,7 +142,7 @@ With 200,000 records in 24 files, a search by slug takes about 5 ms, a rare word
 
 ### Revisions
 
-An entry is corrected by a revision: a record of the same type whose `entry` names the original, written through `Entries.write` given that entry's id. `entry` always names the original, never another revision, so no chain forms.
+An entry is corrected by a revision: a record of the same type whose `entry` names the original, written through `Writer.write` given that entry's id. `entry` always names the original, never another revision, so no chain forms.
 
 ```json
 {"id":"0199b0e1-…","entry":"0199a8c4-…","type":"journal",…,"event_date":"2026-09-14",

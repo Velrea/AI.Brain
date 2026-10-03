@@ -22,7 +22,6 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from brain.entries import Entries
 from brain.format import RecordError
 from brain.lock import LockTimeout
 from brain.read import Reader
@@ -94,7 +93,7 @@ def _render(record: dict) -> str:
 def build(brain: Path, data: Path) -> MCPServer:
     """The server for one Brain folder, keeping this machine's files in `data`."""
     reader = Reader(brain, data)
-    entries = Entries(Writer(brain, data), reader)
+    writer = Writer(brain, data)
     server = MCPServer("brain", instructions=INSTRUCTIONS)
 
     @server.tool(annotations=WRITES, structured_output=False)
@@ -133,7 +132,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         details: the type's own fields.
         source: how the information arrived, in a word.
         """
-        return {"id": entries.write(
+        return {"id": writer.write(
             type=type, version=version, entry=entry, slug=slug, event_date=event_date,
             description=description, body=body, links=links, aliases=aliases or [], details=details,
             source=source,

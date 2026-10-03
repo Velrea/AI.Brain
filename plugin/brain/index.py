@@ -194,6 +194,8 @@ class Index:
                     data = file.read()
             except FileNotFoundError:
                 return  # Gone since it was listed; the next read rebuilds.
+            except PermissionError:
+                return  # Held open by another process, such as a sync service; a later read takes it in.
             end = data.rfind(b"\n") + 1
             if not end:
                 return  # Only part of a line so far: a write in progress, or a torn line.
