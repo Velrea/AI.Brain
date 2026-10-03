@@ -32,7 +32,7 @@ LOCK_TIMEOUT = 30.0
 """Seconds a session waits for the lock. It is held for milliseconds."""
 
 APPEND_RETRY = 10.0
-"""Seconds an append blocked by another process, such as the sync service, keeps retrying."""
+"""Seconds an append blocked by another process keeps retrying."""
 
 
 class AppendBlocked(OSError):
@@ -104,8 +104,8 @@ class Writer:
             record["source"] = source
         with self._lock:
             now = self.clock()
-            # Later than every id this machine wrote here: what orders by id, such as the
-            # newest revision of a field, must not turn on chance within a millisecond.
+            # Later than every id this machine wrote here: what orders by id must not
+            # turn on chance within a millisecond.
             stamp = uuid7(now, after=self._last_ms())
             id = str(stamp)
             record |= {"id": id, "entry": entry or id, "recorded_at": _utc_text(now)}

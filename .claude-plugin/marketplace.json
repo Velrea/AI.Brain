@@ -3,7 +3,7 @@
   "owner": {
     "name": "Velrea"
   },
-  "description": "The Brain: a personal knowledge base run by Claude.",
+  "description": "The Brain: a journal Claude keeps for you.",
   "plugins": [
     {
       "name": "brain",
