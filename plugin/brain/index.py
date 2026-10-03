@@ -150,7 +150,7 @@ class Index:
         try:
             # Sessions read while another takes in a file. The index can be rebuilt, so a
             # commit need not wait for the disk.
-            con.execute("PRAGMA journal_mode = WAL")
+            self._until_free(lambda: con.execute("PRAGMA journal_mode = WAL"))
             con.execute("PRAGMA synchronous = NORMAL")
             # Taking in a file inserts across several B-trees at once; SQLite's 2 MB default thrashes.
             con.execute(f"PRAGMA cache_size = -{CACHE_KB}")
@@ -165,6 +165,23 @@ class Index:
         if new:
             self._delete_other_versions()
         return con
+
+    def _until_free(self, attempt) -> None:
+        """Runs `attempt`, retrying while another session holds the database, for up to
+        the busy timeout. Switching a new index to its write-ahead log takes a lock SQLite
+        refuses at once, without waiting, while other sessions are opening it too."""
+        deadline = time.monotonic() + self.busy_timeout
+        delay = 0.01
+        while True:
+            try:
+                attempt()
+                return
+            except sqlite3.OperationalError as error:
+                busy = getattr(error, "sqlite_errorcode", None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                if not busy or time.monotonic() >= deadline:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 0.25)
 
     def _catch_up(self, con: sqlite3.Connection) -> None:
         listed = self._listed()

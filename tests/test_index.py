@@ -281,6 +281,23 @@ def test_several_sessions_read_and_write_at_once(brain_dir, data_dir, reader):
     assert len(reader.search("amended")) == sessions * len(range(0, count, 3))
 
 
+OPEN_AND_SEARCH = """
+import sys
+from brain.read import Reader
+assert len(Reader(sys.argv[1], sys.argv[2]).search()) == 1
+"""
+
+
+def test_sessions_opening_a_new_index_at_once_all_open_it(writer, brain_dir, tmp_path):
+    writer.write(**entry(description="ours"))
+    fresh = tmp_path / "fresh data"
+
+    procs = [python(OPEN_AND_SEARCH, str(brain_dir), str(fresh)) for _ in range(8)]
+    for proc in procs:
+        _, err = proc.communicate(timeout=120)
+        assert proc.returncode == 0, err
+
+
 def test_a_pattern_finds_words_phrases_prefixes_and_either_side_of_or(writer, reader):
     writer.write(**entry(description="Saw Dr. Jekyll", body="Two drops of Moonberry extract."))
     writer.write(**entry(description="Oil change", body="Dr. Lanyon's garage, drop-off at nine."))
