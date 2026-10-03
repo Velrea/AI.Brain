@@ -17,12 +17,27 @@ The documents folder is for the user to browse by hand. Browse it with `list_doc
 
 File without asking where documents like it are filed. Otherwise offer two or three paths, your recommendation first, once per batch.
 
-## File and record it
+## File it
 
 Call `store_document` with `move: true`. Refused as already filed: skip it, and tell the user where it is. The original could not be removed: carry on with the path and `sha256` the error gives, and tell the user.
 
-Then record it through `journal`, naming it as `store_document` returned it. If that fails, record it again; never file it again.
+## Record it
 
-A folder is filed one document at a time, then recorded through `journal`. A web page is never filed; offer to journal what it says, with its address.
+Find its subjects by `names`, with `types` of `entity`, as `journal` does, then record it with `write`:
+
+- `type`: `document`
+- `version`: `1`
+- `slug`: `<what it is, as a slug, beginning with its date when it records an event>`
+- `event_date`: `<YYYY-MM-DD, the date of the event it records, or else the date it bears>`
+- `description`: `<one line saying what it is and what about it matters>`
+- `body`: `<its contents, less any boilerplate>`
+- `links`: `<the slugs of its subjects>`
+- `details`: `{"path": "<the path store_document returned>", "sha256": "<the sha256 store_document returned>"}`
+
+If that fails, record it again; never file it again. When the document records an event, hand it to `journal`, which writes the event's entry linking to the document's slug.
+
+A changed document is a `write` revising its entry, with `details` of `{"sha256": "<its new sha256>"}` and a `body` saying what changed, so the original's hash still says what it was.
+
+A folder is filed and recorded one document at a time. A web page is never filed; offer to journal what it says, with its address.
 
 Tell the user where each document went, its entry's description, and any original left in place.

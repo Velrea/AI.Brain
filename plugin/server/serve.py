@@ -1,11 +1,12 @@
-"""The Brain's MCP server, over stdio: the core module's type methods, its
-reads, and its documents store, each as a tool.
+"""The Brain's MCP server, over stdio: the core module's write, search, and
+read, and its documents store, each as a tool.
 
-It holds no logic about the data: every tool calls the core module, and
-each tool's description carries the rules the call enforces, so an agent
-without the skills behaves the same. A failure the model can act on, such
-as an unknown entity or a search that finds too much, comes back as an
-error result with how to put it right.
+It is the translation between the core module and the model's context, and
+holds no logic about the data: every tool calls the core module, and each
+tool's description carries the rules the call enforces. No tool is for a
+particular type: what a type means is the skill's that writes it. A failure
+the model can act on, such as a slug already taken or a search that finds too
+much, comes back as an error result with how to put it right.
 """
 
 import functools
@@ -33,10 +34,10 @@ log = logging.getLogger("brain")
 
 INSTRUCTIONS = """\
 The Brain is the user's journal of whatever they choose to record: an append-only \
-log of journal entries, the entities they are about, snapshots of folded answers, \
-and filed documents. Nothing is ever edited; a correction is a revision. Find with `search`, \
-then `read` only the ids you pick. Resolve names to entities with `resolve` before \
-writing or searching by them."""
+log of entries, each of a type its skill defines, named by slugs and linked to other \
+entries by slug, and filed documents. Nothing is ever edited; a correction is a \
+revision through `write`. Find with `search`, then `read` only the ids you pick. \
+Search by names for the slugs of what you mean before linking to or searching by them."""
 
 READS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
@@ -72,14 +73,14 @@ def render(records: list[dict]) -> str:
 
 
 def _render(record: dict) -> str:
-    details = dict(record["details"])
     fields = [f"{name}: {record[name]}" for name in ("id", "type", "event_date", "recorded_at", "source") if record.get(name)]
     lines = [f"# {record['description']}", " | ".join(fields)]
-    if entities := details.pop("entities", None):
-        lines.append("entities: " + ", ".join(entities))
-    for document in details.pop("documents", None) or []:
-        lines.append(f"document: {document['path']} (sha256 {document['sha256']})")
-    for name, value in details.items():
+    for name in ("slugs", "aliases", "links"):
+        if record[name]:
+            lines.append(f"{name}: " + ", ".join(record[name]))
+    if record["merged_into"]:
+        lines.append(f"merged into: {record['merged_into']}")
+    for name, value in record["details"].items():
         if isinstance(value, list) and all(isinstance(item, str) for item in value):
             value = ", ".join(value)
         elif not isinstance(value, str):
@@ -102,131 +103,86 @@ def build(brain: Path, data: Path) -> MCPServer:
 
     @server.tool(annotations=WRITES, structured_output=False)
     @_tool
-    def write_journal(
-        event_date: str,
-        description: str,
-        body: str,
-        entities: list[str] | None = None,
-        documents: list[dict[str, str]] | None = None,
+    def write(
+        type: str,
+        version: int,
+        entry: str | None = None,
+        slug: str | None = None,
+        event_date: str | None = None,
+        description: str | None = None,
+        body: str | None = None,
+        links: list[str] | None = None,
+        aliases: list[str] | None = None,
+        details: dict[str, Any] | None = None,
         source: str | None = None,
     ) -> dict:
-        """Records a journal entry, an account of something that happened, and returns {"id": ...}.
+        """Creates an entry of any type, or revises one, and returns the record's {"id": ...}.
 
-        event_date: when it happened, a local date, YYYY-MM-DD.
-        description: one line a reader can triage from without opening the entry:
-          what happened and what about it matters, never only the kind of event.
-        body: Markdown, the account itself, as complete as it was given.
-        entities: slugs of the entities the entry is about, each one already
-          recorded. Resolve each subject first; write an entity only when none
-          matches. An unrecorded slug is refused and nothing is written.
-        documents: the filed documents the entry is about, each {"path": ..., "sha256": ...}
-          exactly as store_document returned it. File each document first.
+        type: the kind of entry, a slug. version: the version of that type's shape, from 1.
+        To create, leave out entry and give slug, event_date, description, and body:
+          slug: the entry's name, lowercase letters and digits in words joined by
+            hyphens, carried by no other entry. A slug already recorded is refused,
+            naming the entry that carries it.
+          event_date: when it happened, a local date, YYYY-MM-DD.
+          description: one line. body: Markdown, the entry itself.
+        To revise, give entry, the id of an entry of the same type, and what changes:
+          description, event_date, links: each given replaces the entry's.
+          details: each field replaces the entry's field of that name; null removes it.
+          slug, aliases: add to the entry's names. A slug another entry was created
+            under merges that entry into this one.
+          body: an amendment, kept under the entry's body, which is never replaced.
+        links: slugs of the entries this one is about, each carried by an entry.
+          A link no entry carries is refused and nothing is written.
+        aliases: other names it goes by, so a search by names finds it.
+        details: the type's own fields. A document entry names its filed document
+          by "path" and "sha256", as store_document returned them.
         source: how the information arrived, in a word.
         """
-        return {"id": entries.write_journal(
-            event_date=event_date, description=description, body=body,
-            entities=entities or [], documents=documents or [], source=source,
+        return {"id": entries.write(
+            type=type, version=version, entry=entry, slug=slug, event_date=event_date,
+            description=description, body=body, links=links, aliases=aliases or [], details=details,
+            source=source,
         )}
-
-    @server.tool(annotations=WRITES, structured_output=False)
-    @_tool
-    def revise_journal(
-        entry: str,
-        description: str | None = None,
-        event_date: str | None = None,
-        entities: list[str] | None = None,
-        amendment: str | None = None,
-        source: str | None = None,
-    ) -> dict:
-        """Corrects a journal entry and returns the revision's {"id": ...}.
-
-        entry: the id of the original entry.
-        description, event_date, entities: each given replaces the entry's; each
-          left out stands. entities replaces the whole list, each slug recorded.
-        amendment: text kept under the entry's body, saying what was wrong and
-          what is right. The body itself is never replaced.
-        A revision must change something or add an amendment.
-        """
-        return {"id": entries.revise_journal(
-            entry, description=description, event_date=event_date,
-            entities=entities, amendment=amendment, source=source,
-        )}
-
-    @server.tool(annotations=WRITES, structured_output=False)
-    @_tool
-    def write_entity(
-        slug: str,
-        name: str,
-        kind: str,
-        body: str,
-        aliases: list[str] | None = None,
-        source: str | None = None,
-    ) -> dict:
-        """Records an entity, a person, thing, or topic entries are about, and returns {"id": ...}.
-
-        slug: how entries name it: lowercase letters and digits, words joined by hyphens.
-        name: what it is called, one line. kind: what sort of thing it is, in a word.
-          body: Markdown, what it is. aliases: other names it goes by, so `resolve`
-          finds it by them.
-        Writing a slug already recorded restates that entity: its name, kind, and
-        body become these, and the aliases add to those it has. Resolve first, so
-        a subject is recorded once.
-        """
-        return {"id": entries.write_entity(
-            slug=slug, name=name, kind=kind, body=body, aliases=aliases or [], source=source,
-        )}
-
-    @server.tool(annotations=WRITES, structured_output=False)
-    @_tool
-    def write_snapshot(scope: str, description: str, body: str) -> dict:
-        """Records a folded answer so it need not be recomputed, and returns {"id": ...}.
-        Write one only when the user agrees to it.
-
-        scope: the question's meaning in a few words, put so paraphrases of the
-          question land on the same scope.
-        description: one line summarizing the answer. body: Markdown, the answer.
-        Its event date is today. To use one later, search for the latest with this
-        scope, then for what was recorded or revised after it, reaching back a few
-        days for entries that synced late, and fold those in.
-        """
-        return {"id": entries.write_snapshot(scope=scope, description=description, body=body)}
 
     @server.tool(annotations=READS, structured_output=False)
     @_tool
     def search(
         pattern: str | None = None,
-        entities: list[str] | None = None,
+        slugs: list[str] | None = None,
+        names: list[str] | None = None,
         types: list[str] | None = None,
         event_date_from: str | None = None,
         event_date_to: str | None = None,
         recorded_after: str | None = None,
         details: dict[str, str] | None = None,
-        documents: list[str] | None = None,
         newest_first: bool = False,
     ) -> dict:
         """Finds entries of every type and returns {"hits": [...]}, each hit's id, type,
-        event_date, recorded_at, description, and snippet. Read full text with `read`.
+        slugs, event_date, recorded_at, description, snippet, and the names that found
+        it. Read full text with `read`.
 
         pattern: words to find, in any case, in the description, body, or an
           amendment. Every word must appear, in any form of it; a "quoted phrase"
           as written; a word ending in * as a prefix; one starting with - must not
           appear; OR between terms finds either side.
-        entities: slugs; an entry naming any of them is a hit, and so is the
-          entity. Given with pattern, an entry is a hit when either finds it, so
-          pass the subjects' slugs plus words for wording they might miss.
-        types: any of journal, entity, snapshot. event_date_from, event_date_to:
+        slugs: finds the entries carrying any of them and every entry linking to
+          them, through any merge.
+        names: what something is called, as anyone might put it; finds for each
+          up to five entries of the given types whose slug, alias, or description
+          matches it in any case, held whole as words, or spelled alike. Needs types.
+        Given more than one of pattern, slugs, and names, an entry is a hit when
+        any finds it, so pass the subjects' slugs plus words for wording they might miss.
+        types: the kinds of entry to keep. event_date_from, event_date_to:
           YYYY-MM-DD, inclusive. recorded_after: a UTC time or date; finds entries
           recorded or revised after it. details: a type's own fields, matched exactly.
-        documents: sha256 hashes; only entries naming a filed document with one
-          of them are hits.
         Hits are in event-date order, oldest first unless newest_first. A search
         that finds more than 100 returns none and fails with how to refine it,
         including event-date ranges that each fit; to cover everything on a
         subject, search each of those ranges.
         """
         hits = reader.search(
-            pattern, types=types, event_date_from=event_date_from, event_date_to=event_date_to,
-            recorded_after=recorded_after, details=details, entities=entities, documents=documents,
+            pattern, slugs=slugs, names=names, types=types, event_date_from=event_date_from,
+            event_date_to=event_date_to, recorded_after=recorded_after, details=details,
             newest_first=newest_first,
         )
         return {"hits": [asdict(hit) for hit in hits]}
@@ -234,33 +190,18 @@ def build(brain: Path, data: Path) -> MCPServer:
     @server.tool(annotations=READS, structured_output=False)
     @_tool
     def read(ids: list[str]) -> str:
-        """Returns the full records for a list of ids, in event-date order, as Markdown.
+        """Returns the entries for a list of ids, in event-date order, as Markdown.
 
-        Each record opens with its description as a heading, then a line of its
-        fields (id, type, event_date, recorded_at, source), then the entities and
-        documents it names and any other details, then its body as written. An
-        entry comes as it stands now, with its revisions applied and its
-        amendments, oldest first, under a body that is never replaced; an entity
-        as its statements hold it now. Records are separated by a line of ---.
-        A revision's id reads the entry it belongs to. An id not found is left
-        out. Read only the ids a search picked out.
+        Each entry opens with its description as a heading, then a line of its
+        fields (id, type, event_date, recorded_at, source), then its slugs,
+        aliases, and links, the entry it is merged into if any, and its details,
+        then its body as written. An entry comes as it stands now, with its
+        revisions applied and its amendments, oldest first, under a body that is
+        never replaced. Entries are separated by a line of ---. A revision's id
+        reads the entry it belongs to. An id not found is left out. Read only
+        the ids a search picked out.
         """
         return render(reader.read(ids))
-
-    @server.tool(annotations=READS, structured_output=False)
-    @_tool
-    def resolve(names: list[str]) -> dict:
-        """Returns {"matches": {name: [...]}}: for each name, up to five likely entities,
-        best first, each its id, slug, name, kind, and aliases, or none when nothing
-        is likely.
-
-        Pass every subject an entry or a question names, at once. A name matches
-        an entity's slug, name, or an alias in any case and punctuation, held whole
-        as words, or spelled alike. Shorthand that spells nothing like the name is
-        found only through an alias.
-        """
-        found = reader.resolve(names)
-        return {"matches": {name: [asdict(entity) for entity in matches] for name, matches in found.items()}}
 
     @server.tool(annotations=FILES, structured_output=False)
     @_tool
@@ -273,9 +214,10 @@ def build(brain: Path, data: Path) -> MCPServer:
         move: true removes the source once the document is filed; false leaves
           it where it is. A document already in the Brain's documents is never moved.
         Filing the same contents at a path again returns it as it is; a path that
-        already holds other contents is refused, and so are contents an entry
-        already names, wherever they are filed, with where they are. File the
-        document first, then pass what this returns in write_journal's documents.
+        already holds other contents is refused, and so are contents a document
+        entry already names, wherever they are filed, with where they are. File
+        the document first, then record it with write as an entry of type
+        document, passing what this returns in its details.
         """
         return documents.store(Path(source), path, move=move)
 

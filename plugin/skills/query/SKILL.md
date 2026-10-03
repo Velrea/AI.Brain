@@ -9,9 +9,9 @@ Answer from what the Brain recorded and what you can check, never from what seem
 
 ## Find
 
-Resolve the question's subjects, including the broad subject the question covers. Search by those slugs plus the question's words, then again only where the hits leave a gap. Read only the ids you pick, long entries a handful at a time.
+Find the question's subjects, including the broad subject the question covers: search by `names`, with `types` of `entity`. Search by their slugs plus the question's words, then again only where the hits leave a gap. Read only the ids you pick, long entries a handful at a time.
 
-For how something stands now, start from the latest snapshot whose scope fits.
+For how something stands now, search for snapshots linking to its subjects, with `types` of `snapshot`, newest first. Start from the latest whose scope fits, and fold in what was recorded or revised after it, reaching back a few days before it was recorded for entries that synced late.
 
 When an answer needs everything about a subject and the search passes the ceiling, search each range the failure gives, folding as you read.
 
@@ -27,4 +27,4 @@ Where the record points beyond itself, or the question needs facts it never held
 
 Answer briefly, and say where more is available. Say which parts rest on which entries, by date and description, and which on other sources: the record holds what was known when it was written, and another source holds what it says now. When nothing turns up by subject, by wording, or across dates, say the Brain does not record it.
 
-After an expensive fold, say how many entries it took and offer a snapshot. On a yes, rebuild the answer from every matching entry and write it.
+After an expensive fold, say how many entries it took and offer a snapshot. On a yes, record it through `snapshot`.

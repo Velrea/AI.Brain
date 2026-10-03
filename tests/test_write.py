@@ -40,9 +40,9 @@ def test_an_entry_is_written_as_one_stamped_line_in_the_envelope(writer, brain_d
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"description": " "}, {"body": chr(0xD800)}, {"body": ""}, {"entry": "not-an-id", "body": ""}],
+    [{"description": " "}, {"body": chr(0xD800)}, {"body": ""}, {"entry": "not-an-id", "body": ""}, {"slugs": []}],
     ids=["blank description", "text that is not valid Unicode", "an original with no body",
-         "a revision naming no entry"],
+         "a revision naming no entry", "an original with no slug"],
 )
 def test_a_rejected_entry_writes_nothing(writer, brain_dir, overrides):
     with pytest.raises(RecordError):
@@ -147,7 +147,7 @@ from brain.write import Writer
 brain_dir, data_dir, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 writer = Writer(brain_dir, data_dir)
 for n in range(count):
-    writer.write_entry(type="journal", version=1, event_date="2026-09-14",
+    writer.write_entry(type="journal", version=1, event_date="2026-09-14", slugs=[f"{name}-{n}"],
                        description=f"{name} {n}", body=name * 5000)
 """
 

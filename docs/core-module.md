@@ -2,15 +2,17 @@
 
 The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent reaches them only through [the MCP server](mcp-server.md), which calls this package. Reading goes through [a local index](#the-local-index) each machine builds from the files and keeps for itself. The tests in [`tests/`](../tests/) drive it directly, with no server.
 
-A Brain is an append-only log of events. It holds events, never current state; how things stand now is worked out by reading the events in order. A record is never edited, and a correction is a new record.
+A Brain is an append-only log of entries. It holds events, never current state; how things stand now is worked out by reading the entries in order. A record is never edited, and a correction is a new record.
+
+The core module knows no type of entry but one. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry or an entity, is defined by [the skill](skills.md) that writes it. So a skill someone writes for their own use records its own type with no change here or to the server. The one type the core module knows is `document`, the record of a filed document, since [the documents store](#documents) relies on it.
 
 | Module | Holds |
 | --- | --- |
 | [`format.py`](../plugin/brain/format.py) | The file format: the record's envelope and its checks, the one-line encoding, the folder layout, and file names. The read side imports it; it imports neither side. |
-| [`write.py`](../plugin/brain/write.py) | `Writer.write_entry`, the one generic write. |
+| [`write.py`](../plugin/brain/write.py) | `Writer.write_entry`, which stamps a record and appends it. |
+| [`entries.py`](../plugin/brain/entries.py) | `Entries.write`, the one write for every type: it creates an entry or revises one, checking it against what is already recorded. |
 | [`index.py`](../plugin/brain/index.py) | The local index: the SQLite database this machine keeps of the files, caught up before every read. |
-| [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and full records by id, and resolving names to [entities](#entities). It reads through the index and imports the file format, never the write path. |
-| [`entries.py`](../plugin/brain/entries.py) | One write method per supported type, over `write_entry`, and `revise_journal`. |
+| [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and entries by id. It reads through the index and imports the file format, never the write path. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
 | [`documents.py`](../plugin/brain/documents.py) | The [documents store](#documents): original files, filed beside the events. |
 
@@ -27,7 +29,7 @@ A Brain is an append-only log of events. It holds events, never current state; h
 <plugin data folder>/          this machine's own, never synced
   <key>.lock                   the lock file
   <key>.json                   the file this machine appends to, its line count, and its last id's time
-  <key>.index-v1.sqlite        the local index
+  <key>.index-v2.sqlite        the local index
 ```
 
 The Brain folder's events are in one flat `events/` folder. Each file is named `h-<uuidv7>.jsonl` for the time it was started, and only the machine that created it ever appends to it. A sync service copies whole files between machines, so two machines appending to one file would each overwrite the other's lines; with one owner per file, that never happens, and no machine is named in the layout. The plugin data folder is never synced: the lock coordinates only this machine, the current file is this machine's alone, and the index is built here from the files. `<key>` is a hash of the Brain folder's path, so two Brains on one machine never share a lock, a current file, or an index. The caller hands the `Writer` and the `Reader` both folders; the MCP server supplies the plugin data folder.
@@ -39,32 +41,47 @@ Each record is one line of UTF-8 JSON, ended by a newline, with one envelope sha
 ```json
 {"id":"0199a8c4-…","entry":"0199a8c4-…","type":"journal","version":1,
  "recorded_at":"2026-09-28T23:14:32Z","event_date":"2026-09-14",
- "description":"Oil change","source":"voice",
- "body":"## Service\nOil and filter changed…","details":{}}
+ "description":"Oil change at 48k, rear brakes flagged as worn","source":"voice",
+ "body":"## Service\nOil and filter changed…",
+ "slugs":["2026-09-14-oil-change"],"aliases":[],"links":["blue-hatchback"],"revises":[],"details":{}}
 ```
 
 | Field | Carries |
 | --- | --- |
-| `id` | A UUIDv7, stamped by the write path. Unique everywhere without coordination. Each is later than every id its machine wrote before, even within one millisecond, so a machine's records order by id as it wrote them, and the newest of a revision or a restatement never turns on chance. |
+| `id` | A UUIDv7, stamped by the write path, never by the caller. It is the record's identity: unique everywhere without coordination, and later than every id its machine wrote before, even within one millisecond, so a machine's records order by id as it wrote them, and the newest of two revisions never turns on chance. |
 | `entry` | The entry the record belongs to: its own `id` on an original, the original's on a [revision](#revisions). Stamped by the write path, and never empty, so every record has the same shape. |
-| `type` | The kind of entry, such as `journal`. |
-| `version` | The version of that type's shape the record was written under, fixed by the type's method. |
+| `type` | The kind of entry, a slug, such as `journal`. |
+| `version` | The version of that type's shape the record was written under, given by the skill that defines the type. |
 | `recorded_at` | When it was written down, UTC, stamped by the write path. For display and for finding what changed since; nothing orders by it. |
 | `event_date` | When the event happened, a local date. What a reader orders by. |
 | `description` | A one-line summary. |
-| `body` | Markdown: the account itself. |
+| `body` | Markdown: the entry itself. |
 | `source` | How the information arrived, such as `voice` or `email`. The only optional field. |
+| `slugs` | The entry's names: one on an original, and any a revision adds. |
+| `aliases` | Other names the entry goes by, for a [search by name](#search-and-read). |
+| `links` | The slugs of the entries this one is about, of any type. |
+| `revises` | On a revision, which of `description`, `event_date`, and `links` it replaces; empty on an original. |
 | `details` | What the type adds, as a JSON object; `{}` when it adds nothing. |
 
 A record carries no writer and no position: its `id` lets it stand alone wherever it is copied. The newline ends a record. A line that is whole and valid JSON is a record, and anything else is a fragment a reader skips.
 
+## Slugs and links
+
+A slug is an entry's name: lowercase letters and digits, in words joined by hyphens. Entries link to each other by slug, of any type, so a journal entry links to the entities it is about, to the document entries of the documents it concerns, and to an earlier entry it follows on from. A search by a slug then returns the whole set in one call. Searching text cannot promise every entry on a subject: an entry that says "two drops of Moonberry extract with breakfast" never says "medication". Linking an entry when it is written moves that judgment to the moment a model looks at one entry with its whole attention. Over a fictional decade of entries, three models asked which medications were current missed or misstated one with text search alone, and all three answered fully searching by subject.
+
+Links go by slug rather than id, so a link written on one machine resolves to whatever carries the slug once the machines sync. Two machines that each create an entry under one slug before they sync keep both, and a search by that slug finds both.
+
+An entry can carry more than one slug. Two entries that turn out to be one thing, such as `meds` recorded beside `medication`, are merged by a revision that adds the old slug to the one kept: one record, revising none of the entries that link to the old slug. The index applies it when it builds, so an entry linking to the old slug that syncs in after the merge is covered with nothing more to write. Deciding that two entries are one thing is the model's call; the index only applies what was recorded.
+
 ## Writing
 
-A caller writes through a type's method, such as `Entries.write_journal`, which takes only that type's fields, fixes its `type` and `version`, and calls `Writer.write_entry`. The MCP server exposes the type methods, never `write_entry`. The types so far are `journal`, [`entity`](#entities), and [`snapshot`](#snapshots), and a journal entry is corrected through [`revise_journal`](#revisions). A journal entry names the entities it is about, by slug, in `details.entities`, and `write_journal` refuses a slug no entity has been recorded under, with `UnknownEntities`, so an entry never names a subject nothing can resolve. Entities are never removed, so the check, made before the lock, cannot go stale.
+A caller writes through `Entries.write`, which takes the type, its version, and the type's own fields, and calls `Writer.write_entry`. The MCP server exposes `Entries.write`, never `write_entry`. Given no `entry`, it creates an entry, which needs a slug, an event date, a description, and a body. Given the id of an entry, it [revises](#revisions) that entry.
+
+It checks an entry against what is already recorded, before the lock: a new entry's slug must be one no entry carries, or it raises `SlugTaken`, naming the entry that carries it, so the caller can revise that one instead; each link must be a slug some entry carries, or it raises `UnknownLinks`, so an entry never links to nothing; and a revision must name an entry of its own type. Slugs are never removed, so a link found before the lock still resolves when it is written. A document entry must name its document by `path` and `sha256`.
 
 ```mermaid
 flowchart LR
-    method["write_journal"] --> check["Check the envelope"]
+    method["Entries.write"] --> check["Check the envelope,<br/>the slug, and the links"]
     check --> lock["Take the lock"]
     lock --> stamp["Stamp id, entry,<br/>and recorded_at"]
     stamp --> current["Find this machine's file:<br/>end a torn line,<br/>roll one that is due"]
@@ -85,7 +102,7 @@ The Brain relies on the sync service to carry files between machines and does no
 
 ## Reading
 
-Writing is typed and reading is not. A type's write method controls the shape of what is recorded, so a caller never builds a record by hand; reading needs no such control, so `Reader` finds and returns entries of every type the same way, and the caller interprets what comes back by its type. Two calls cover it: `search` finds, `read` returns. Only `resolve`, which turns names into [entities](#entities), knows a type. They carry the mechanics of the index, so a caller needs only to know what to ask.
+Reading knows no type: `Reader` finds and returns entries of every type the same way, and the caller interprets what comes back by its type. Two calls cover it: `search` finds, `read` returns. They carry the mechanics of the index, so a caller needs only to know what to ask.
 
 ### The local index
 
@@ -97,7 +114,7 @@ flowchart LR
     list -- "a file vanished<br/>or shrank" --> rebuild["Rebuild from<br/>every file"]
     rebuild --> grown
     grown -- yes --> take["Take in its new<br/>complete lines"]
-    take --> settle["Settle every entry<br/>they touch"]
+    take --> settle["Settle every entry<br/>they touch, and<br/>any merge"]
     settle --> offset["Move its offset"]
     offset --> grown
     grown -- "no more" --> answer["Answer from the index"]
@@ -106,7 +123,7 @@ flowchart LR
 - **Catching up.** The index keeps, for each file, how many bytes of it it has taken in, and takes in only the complete lines past that. A sealed file is read once in its life, and a read with nothing new pays only for listing the folder. The offset is per file because each machine's files grow on their own and arrive late; no single position covers them. A file is taken in within one transaction, with its new offset, so a crash midway loses nothing and the next read carries on.
 - **Bad lines.** A line that is not valid JSON, a torn line among them, or that lacks a field of the envelope is skipped, never reported as an error. A last line not yet ended by its newline waits until it is, since it may be an append in progress.
 - **Each id once.** A record copied into two files is the same record, and is kept once.
-- **Settling.** The index keeps every record, and beside them each entry as it stands now: an original with its [revisions](#revisions) applied, or an entity's statements as [one entity](#entities). Only revisions and restatements collapse: every entry is its own row, and the files keep every record.
+- **Settling.** The index keeps every record, and beside them each entry as it stands now: its original with its [revisions](#revisions) applied, and the entry it is merged into, if any. Only revisions collapse: every entry is its own row, and the files keep every record.
 - **A file that vanishes or shrinks** rebuilds the index, since it cannot tell which of its rows came only from that file.
 - **Sessions.** Sessions on one machine share the index. Its write-ahead log lets them read while another takes in a file, and one waits up to 30 seconds for another to finish taking in. A change to the index's own layout names a new file, so sessions running two versions of the plugin never rebuild each other's.
 - **SQLite is Python's own**, so the plugin pins no database package. It must include FTS5 full-text search and JSON, as the builds from python.org and most Linux distributions do; without them a read raises `IndexUnavailable`.
@@ -114,59 +131,47 @@ flowchart LR
 ### Search and read
 
 - **Order is `event_date`**, then `id` to break ties, never `recorded_at` or file position: records from different files interleave only by what they say.
-- **`search`** finds words, in any case, in the description, the body, and the amendments of every type, or [entities](#entities) by slug, or both. Every word must appear, in any form of it, so `drop` finds "drops"; a "quoted phrase" must appear as written; a word or phrase ending in `*` matches as a prefix; one starting with `-` must not appear; and `OR` between terms finds either side. Accents are read as plain letters. Each term is quoted before it reaches SQLite's full-text search, so punctuation, as in `Dr. J` or `drop-off`, is never syntax. A pattern with nothing to look for raises `PatternError`. Words are searched through a full-text index rather than matched as regular expressions: SQLite has no fast regular expressions, and one written in Python took about 500 ms over 200,000 entries where a full-text search takes milliseconds.
-- `search` filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, which finds entries recorded or revised after it, by exact `details` fields, and by `documents`, the `sha256` of a filed document an entry names. It returns every hit, oldest first unless asked for newest first, each a lean one: its id, type, event date, recorded time, description, and a snippet of about 25 words around the best match in the body or its amendments, or else the first 160 characters of the body. A caller reads the hits, searches again where it needs more, and reads full text only for the ids it picks.
-- **No paging, but a ceiling.** A search that finds more than 100 entries returns none and raises `TooManyHits`, with the total and how to refine it: more words or entities, types or details, more targeted searches, or event-date ranges that each fit within the ceiling. A page invites a caller to stop at the first one, and with results ordered by date the first page is the oldest; with no partial result, a caller never mistakes part of an answer for the whole of it. A hundred lean hits come to about 10,000 tokens.
-- **`read`** returns the full records for a list of ids in one call, as objects in the envelope's shape with `details` parsed and an entry's `amendments` added, in event-date order. A revision's id, or an older statement's, reads the entry it belongs to. An id not found is left out.
+- **`search`** finds entries by words, by slugs, or by names, and an entry is a hit when any of them finds it, so an entry whose links were missed when it was written is still found by its words.
+  - **Words**, in any case, in the description, the body, and the amendments. Every word must appear, in any form of it, so `drop` finds "drops"; a "quoted phrase" must appear as written; a word or phrase ending in `*` matches as a prefix; one starting with `-` must not appear; and `OR` between terms finds either side. Accents are read as plain letters. Each term is quoted before it reaches SQLite's full-text search, so punctuation, as in `Dr. J` or `drop-off`, is never syntax. A pattern with nothing to look for raises `PatternError`. Words are searched through a full-text index rather than matched as regular expressions: SQLite has no fast regular expressions, and one written in Python took about 500 ms over 200,000 entries where a full-text search takes milliseconds.
+  - **Slugs** find the entries carrying any of them and every entry linking to a slug those entries carry, through any merge, so either slug of a merge finds one set.
+  - **Names** find, for each name, up to five entries of the given types, best first, whose slug, alias, or description it likely means. A name is compared in any case, with punctuation and hyphens read as spaces. The same is the best match, then one held whole in the other as words, such as `jekyll` in `dr jekyll`, then one spelled alike by Jaro-Winkler similarity of at least 0.8. Shorthand that spells nothing like the name, such as `meds` for `medication`, is found only through an alias. A search by names needs types, since it compares the name with every entry of those types, and without them it raises `ValueError`. Resolving a name to an entity is a search by names with the type `entity`.
+- `search` filters by type, by event dates, inclusive, by `recorded_after`, a UTC time, which finds entries recorded or revised after it, and by exact `details` fields. It returns every hit, oldest first unless asked for newest first, each a lean one: its id, type, slugs, event date, recorded time, description, the names that found it, and a snippet of about 25 words around the best match in the body or its amendments, or else the first 160 characters of the body. An entry merged into another is never a hit; the one it is merged into is. A caller reads the hits, searches again where it needs more, and reads full text only for the ids it picks.
+- **No paging, but a ceiling.** A search that finds more than 100 entries returns none and raises `TooManyHits`, with the total and how to refine it: more words or slugs, types or details, more targeted searches, or event-date ranges that each fit within the ceiling. A page invites a caller to stop at the first one, and with results ordered by date the first page is the oldest; with no partial result, a caller never mistakes part of an answer for the whole of it. A hundred lean hits come to about 10,000 tokens.
+- **`read`** returns the entries for a list of ids in one call, each in the envelope's shape less `entry` and `revises`, with `details` parsed, its `amendments` added, and `merged_into`, the entry it is merged into or none, in event-date order. A revision's id reads the entry it belongs to. An id not found is left out.
 
-With 200,000 records in 24 files, a search by entity takes about 8 ms, by a rare word about 50 ms, and a read of 20 ids about 3 ms. A word found in nearly every entry is the slow case, at about half a second. Building the index from scratch takes about 22 seconds, and it is 2.4 times the size of the files. At a million records, a search by entity still takes about 10 ms and a phrase about 3 ms, but a word found in 6% of entries takes about 340 ms, and a build from scratch about three and a half minutes.
+With 200,000 records in 24 files, a search by slug takes about 5 ms, a rare word or a phrase about 3 ms, and a read of 20 ids about 2 ms. A word found in nearly every entry is the slow case, at about 0.6 seconds to count and refuse it. Ten names compared with 2,000 entities take about 200 ms, and with 10,000 about 530 ms, most of it comparing spellings in Python. Building the index from scratch takes about 33 seconds, and it is 2.7 times the size of the files. At a million records, a search by slug still takes about 11 ms and a phrase about 3 ms, but a word found in nearly every entry takes about 3 seconds to refuse, and a build from scratch about five minutes.
 
 ### Revisions
 
-A journal entry is corrected by a revision: a journal record whose `entry` names the original, written through `Entries.revise_journal`. It has its own method beside `write_journal` because the two take different things: a revision needs the entry it revises and accepts only what changes, where a new entry needs a body, a description, and a date. `entry` always names the original, never another revision, so no chain forms.
+An entry is corrected by a revision: a record of the same type whose `entry` names the original, written through `Entries.write` given that entry's id. `entry` always names the original, never another revision, so no chain forms.
 
 ```json
 {"id":"0199b0e1-…","entry":"0199a8c4-…","type":"journal",…,"event_date":"2026-09-14",
  "description":"Oil change and tyre rotation","body":"Correction: the tyres were rotated too.",
- "details":{"revises":["description"]}}
+ "slugs":[],"aliases":[],"links":["blue-hatchback"],"revises":["description"],"details":{}}
 ```
 
-- **Metadata is replaced, newest per field.** `details.revises` names the fields a revision sets, of `description`, `event_date`, and `entities`. For each field, the newest revision setting it wins, by id, so two machines revising different fields of one entry before they sync both hold. The fields a revision does not set hold the entry's as they stood, so the record reads whole on its own.
-- **A body is never replaced.** A revision's body is an amendment, kept under the original in the order recorded, so the account stays exactly as it was given and the correction travels with it: a search finds the entry by either text, and reading it returns the original with every amendment. A revision of metadata alone has an empty body.
+- **Fields are replaced, newest per field.** `revises` names which of `description`, `event_date`, and `links` a revision sets, and each field of its `details` replaces the entry's field of that name, a null removing it. For each field, the newest revision setting it wins, by id, so two machines revising different fields of one entry before they sync both hold. The fields a revision does not set hold the entry's as they stood, so the record reads whole on its own.
+- **Names are added, never replaced.** A revision's slugs and aliases add to the entry's, so two machines adding names before they sync lose neither. A slug another entry was created under [merges](#slugs-and-links) that entry into this one.
+- **A body is never replaced.** A revision's body is an amendment, kept under the original in the order recorded, so the entry stays exactly as it was given and the correction travels with it: a search finds the entry by either text, and reading it returns the original with every amendment. A revision of fields alone has an empty body.
 - **A revision that arrives before its original** waits for it, and applies when it comes.
-
-### Entities
-
-An entity is a person, thing, or topic entries are about, such as `dr-jekyll`, `zorblax`, or `mom`. Searching text cannot promise every entry on a subject: an entry that says "two drops of Moonberry extract with breakfast" never says "medication". Naming an entry's entities when it is written moves that judgment to the moment a model looks at one entry with its whole attention, and a search by entity then returns the whole set in one call. Over a fictional decade of entries, three models asked which medications were current missed or misstated one with text search alone, and all three answered fully searching by subject.
-
-An entity is an entry of type `entity`, written through `Entries.write_entity`, never a list kept beside the log: a list of every subject loaded on every write costs tokens that grow with the vocabulary, while entities in the log are queried, so only the likely matches come back. Its description is its name, its body says what it is, and its `details` carry its `slug`, its `kind`, such as `person` or `medication`, and its `aliases`, the other names it goes by. Entries name it by slug. A record is never edited, so writing a slug again restates the entity, with its event date the day it was stated. The index holds an entity's statements as one entity, since an entity is identified by its slug: its id, name, kind, and body are the newest statement's, by event date and then id, and its aliases are every statement's. Two machines that each add an alias before they sync lose neither, and a machine that has not yet seen an entity and records it again only adds to it.
-
-```json
-{"type":"entity","description":"Dr. Jekyll","body":"The family physician.",
- "details":{"slug":"dr-jekyll","kind":"person","aliases":["Dr. J"]}, …}
-```
-
-- **`resolve`** takes a list of names and returns, for each, up to five likely entities, best first, as each holds now: id, slug, name, kind, and aliases. A name is compared with an entity's slug, name, and aliases in any case, with punctuation and hyphens read as spaces. The same is the best match, then one held whole in the other as words, such as `jekyll` in `dr jekyll`, then one spelled alike by Jaro-Winkler similarity of at least 0.8. A name with nothing likely gets none. A writer passes every subject it finds in an entry, reuses an entity that matches, and creates one only when none does, so a subject is recorded once. Shorthand that spells nothing like the name, such as `meds` for `medication`, is found only through an alias.
-- **Search by entity** returns the entries that name any of the slugs, and each entity itself, once. Given words as well, an entry is a hit when either finds it: requiring both would lose an entry whose entities were missed when it was written.
-
-With 2,000 entities, resolving ten names takes about 160 ms, and with 10,000 about 770 ms, most of it comparing spellings in Python.
 
 ### Snapshots
 
-A snapshot records a folded answer so it need not be recomputed, such as a list of the dragon's current hoard drawn from years of entries. It is an entry of type `snapshot`, written through `Entries.write_snapshot`, and only at the user's word. Its body holds the answer, its event date is the day it was taken, and its `details` carry `scope`, the question's meaning, put so paraphrases land on one scope.
+A snapshot records a folded answer so it need not be recomputed, such as a list of the dragon's current hoard drawn from years of entries. It is an entry of type `snapshot`, defined by [its skill](skills.md#snapshot) and written only at the user's word: its body holds the answer, its event date is the day it was taken, its links name the subjects it covers, and its `details` carry `scope`, the question's meaning, put so paraphrases land on one scope.
 
 A snapshot needs no read of its own. A caller finds the latest one for a question with `search`, then searches for what was recorded or revised after it, reaching back a few days past its `recorded_at` for entries that synced late, and folds those in. The reach-back is the caller's to choose.
 
 A record that syncs later than the reach-back is missed, and so is a record the model misread when folding. Both are accepted: a machine with no connection cannot reach the model to record anything, so a long delay is rare, and any store kept in step by a sync service has the same gap. Either is fixed the same way, by building the snapshot afresh from every matching entry and writing a new one.
 
-Nothing extracts facts, such as a current dose, when an entry is written. Extracting them would need every future question anticipated, and a fact extracted wrong is trusted silently. Entities find every entry on a subject without knowing the question, and a snapshot caches an expensive answer for a question actually asked.
+Nothing extracts facts, such as a current dose, when an entry is written. Extracting them would need every future question anticipated, and a fact extracted wrong is trusted silently. Links find every entry on a subject without knowing the question, and a snapshot caches an expensive answer for a question actually asked.
 
 ## Documents
 
-The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf`, and returns the path and the copy's `sha256`. Asked to move, it removes the original once the copy is in place, so one copy remains and it is the filed one. A journal entry names the documents it is about in `details.documents`, each by both, passed to `write_journal` exactly as `store` returned them, after they are filed, so a pointer never points at nothing. `Documents.browse` lists one folder at a time, its folders with how many documents each holds and its documents by name, for a caller choosing where a document belongs.
+The documents store keeps original files in the Brain folder's `documents/`, beside the events, so one synced folder is the whole Brain. `Documents.store` copies a file to a path inside it, such as `assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf`, and returns the path and the copy's `sha256`. Asked to move, it removes the original once the copy is in place, so one copy remains and it is the filed one. The document is then recorded as an entry of type `document`, naming both in its `details` exactly as `store` returned them, after it is filed, so a pointer never points at nothing; other entries link to it by its slug. `Documents.browse` lists one folder at a time, its folders with how many documents each holds and its documents by name, for a caller choosing where a document belongs.
 
 - **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there raises `DocumentError`, so a pointer to a document never comes to point at something else.
-- **A document is filed once.** Given the `Reader`, `store` refuses contents an entry already names, wherever they would be filed, and says where they are and which entry names them; the original stays where it was. It looks them up with `search` by `sha256`, which scans the entries' `details` and takes about 30 ms over 200,000 entries. Contents filed but not yet named by an entry, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
+- **A document is filed once.** Given the `Reader`, `store` refuses contents a document entry already names, wherever they would be filed, and says where they are and which entry names them; the original stays where it was. It looks them up with a search of document entries by `sha256`. Contents filed but not yet recorded, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
 - **A filed document is never moved.** A move of a file already inside `documents/` is refused, since the entries naming it would point at nothing.
 - **An original that cannot be removed** is reported after the document is filed, with its path and `sha256`, so the entry can still name it.
 - **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.

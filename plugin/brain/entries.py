@@ -1,33 +1,37 @@
-"""One write method per type the Brain supports, over the generic write.
+"""The one write for every type: creates an entry, or revises one.
 
-Each fixes its type and version, takes only the fields that type has, and
-packs what the type adds into `details`, so the shape of a record is the
-code's to control. The server exposes these, never `Writer.write_entry`
-itself. Reading needs no such methods: `Reader` returns every type the same way.
+What a type means is its skill's: the type and its version are the caller's
+to give, and its own fields go in `details`. What every entry obeys is checked
+here against what is already recorded: a new entry's slug is one no entry
+carries, each link names a slug some entry carries, and a revision names an
+entry of its own type. The server exposes this, never `Writer.write_entry`.
 """
 
-import datetime as dt
-import re
 from collections.abc import Mapping, Sequence
 
-from .documents import reference
-from .format import RecordError
-from .index import REVISABLE
+from .documents import DOCUMENT, check_document
+from .format import REVISABLE, RecordError, check_slug
 from .read import Reader
 from .write import Writer
 
-JOURNAL_VERSION = 1
-SNAPSHOT_VERSION = 1
-ENTITY_VERSION = 1
 
-_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+class SlugTaken(RecordError):
+    """A new entry's slug is one an entry already carries."""
+
+    def __init__(self, slug: str, holders: list[tuple[str, str]]):
+        held = "; ".join(f"{id} ({description})" for id, description in holders)
+        super().__init__(
+            f"the slug {slug!r} is already recorded, by {held}: revise that entry with its id as entry,"
+            f" or give this one a slug of its own"
+        )
+        self.slug = slug
 
 
-class UnknownEntities(RecordError):
-    """A journal entry named slugs no entity has been recorded under."""
+class UnknownLinks(RecordError):
+    """An entry linked to slugs no entry carries."""
 
     def __init__(self, slugs: list[str]):
-        super().__init__(f"no entity is recorded as {', '.join(slugs)}: resolve or write it first")
+        super().__init__(f"no entry carries {', '.join(slugs)}: search for the slug, or create its entry first")
         self.slugs = slugs
 
 
@@ -36,153 +40,101 @@ class Entries:
         self.writer = writer
         self.reader = reader
 
-    def write_journal(
+    def write(
         self,
         *,
-        event_date: str,
-        description: str,
-        body: str,
-        entities: Sequence[str] = (),
-        documents: Sequence[Mapping[str, str]] = (),
-        source: str | None = None,
-    ) -> str:
-        """Records a journal entry: an account of what happened. Returns its id.
-
-        `entities` are the slugs of the entities the entry is about, each
-        one an entity already recorded, or UnknownEntities is raised and
-        nothing is written. Entities are never removed, so a slug found
-        here is still there when the entry is written. `documents` are the
-        filed documents the entry is about, each `{"path", "sha256"}` as
-        filing it returned, filed first so a pointer never points at nothing.
-        """
-        entities = self._known("entities", entities)
-        if isinstance(documents, (str, Mapping)) or not isinstance(documents, Sequence):
-            raise RecordError("documents must be a list")
-        documents = list({d["path"]: d for d in map(reference, documents)}.values())
-        details = {}
-        if entities:
-            details["entities"] = entities
-        if documents:
-            details["documents"] = documents
-        return self.writer.write_entry(
-            type="journal",
-            version=JOURNAL_VERSION,
-            event_date=event_date,
-            description=description,
-            body=body,
-            source=source,
-            details=details,
-        )
-
-    def revise_journal(
-        self,
-        entry: str,
-        *,
-        description: str | None = None,
+        type: str,
+        version: int,
+        entry: str | None = None,
+        slug: str | None = None,
         event_date: str | None = None,
-        entities: Sequence[str] | None = None,
-        amendment: str | None = None,
+        description: str | None = None,
+        body: str | None = None,
+        links: Sequence[str] | None = None,
+        aliases: Sequence[str] = (),
+        details: Mapping | None = None,
         source: str | None = None,
     ) -> str:
-        """Revises a journal entry and returns the revision's id.
+        """Creates an entry, or revises the one `entry` names, and returns the record's id.
 
-        `description`, `event_date`, and `entities` replace the entry's, and
-        each one not given is left as it stands. The body is never replaced:
-        `amendment` is kept under it, so the account stays as it was given
-        and the correction travels with it. `entry` is the id of the original entry. Raises
-        RecordError when nothing is revised or `entry` is not a journal
-        entry, and UnknownEntities as `write_journal` does.
+        To create, give `slug`, `event_date`, `description`, and `body`; a slug
+        an entry already carries raises SlugTaken. To revise, give `entry`, the
+        id of an entry of the same type, and what changes: `description`,
+        `event_date`, and `links` each replace the entry's; each field of
+        `details` replaces the entry's field of that name, a None removing it;
+        `slug` and `aliases` add to the entry's names, and a slug another entry
+        was created under merges that entry into this one; `body` is an
+        amendment kept under the entry's body, which is never replaced. A link
+        no entry carries raises UnknownLinks, and nothing is written. Slugs
+        are never removed, so a link found here still resolves when written.
         """
-        given = {"description": description, "event_date": event_date, "entities": entities}
+        aliases = _lines("aliases", aliases)
+        if links is not None:
+            links = self._linked(links)
+        if details is not None and not isinstance(details, Mapping):
+            raise RecordError("details must be an object of fields")
+        details = dict(details or {})
+        if entry is None:
+            return self._create(type=type, version=version, slug=slug, event_date=event_date,
+                                description=description, body=body, links=links or [], aliases=aliases,
+                                details=details, source=source)
+        if slug is not None:
+            check_slug("slug", slug)
+        given = {"description": description, "event_date": event_date, "links": links}
         revises = [name for name in REVISABLE if given[name] is not None]
-        if not revises and amendment is None:
-            raise RecordError("a revision must change the description, event date, or entities, or add an amendment")
-        if amendment is not None and (not isinstance(amendment, str) or not amendment.strip()):
-            raise RecordError("amendment must be non-empty text")
-        current = next((record for record in self.reader.read([entry]) if record["id"] == entry), None)
-        if current is None or current["type"] != "journal":
-            raise RecordError(f"no journal entry has the id {entry!r}")
-        details = {"revises": revises}
-        if entities is not None:
-            details["entities"] = self._known("entities", entities)
+        if not (revises or slug or aliases or details or body is not None):
+            raise RecordError("a revision must change the description, event date, links, slugs, aliases, or"
+                              " details, or add an amendment")
+        if body is not None and (not isinstance(body, str) or not body.strip()):
+            raise RecordError("an amendment must be non-empty text")
+        current = next((record for record in self.reader.read([entry])), None)
+        if current is None:
+            raise RecordError(f"no entry has the id {entry!r}")
+        if current["type"] != type:
+            raise RecordError(f"entry {current['id']} is a {current['type']}, not a {type}")
+        if type == DOCUMENT and details:
+            check_document({
+                name: value for name, value in {**current["details"], **details}.items() if value is not None
+            })
         return self.writer.write_entry(
-            entry=entry,
-            type="journal",
-            version=JOURNAL_VERSION,
+            entry=current["id"],
+            type=type,
+            version=version,
             # Whole on its own: what it does not revise is the entry's as it stood.
             event_date=current["event_date"] if event_date is None else event_date,
             description=current["description"] if description is None else description,
-            body=amendment or "",
+            body=body or "",
             source=source,
+            slugs=[slug] if slug else [],
+            aliases=aliases,
+            links=current["links"] if links is None else links,
+            revises=revises,
             details=details,
         )
 
-    def _known(self, name: str, slugs: object) -> list[str]:
-        """The slugs, each checked as one an entity is recorded under."""
-        slugs = _slugs(name, slugs)
-        missing = sorted(set(slugs) - self.reader.known_slugs(slugs)) if slugs else []
+    def _create(self, *, type, version, slug, event_date, description, body, links, aliases, details,
+                source) -> str:
+        check_slug("slug", slug)
+        if type == DOCUMENT:
+            check_document(details)
+        if holders := self.reader.holders([slug]).get(slug):
+            raise SlugTaken(slug, holders)
+        return self.writer.write_entry(
+            type=type, version=version, event_date=event_date, description=description, body=body,
+            source=source, slugs=[slug], aliases=aliases, links=links, details=details,
+        )
+
+    def _linked(self, links: object) -> list[str]:
+        """The links, each checked as a slug some entry carries."""
+        if isinstance(links, str) or not isinstance(links, Sequence):
+            raise RecordError("links must be a list")
+        links = list(dict.fromkeys(links))
+        for link in links:
+            check_slug("links", link)
+        missing = sorted(set(links) - set(self.reader.holders(links))) if links else []
         if missing:
-            raise UnknownEntities(missing)
-        return slugs
-
-    def write_snapshot(self, *, scope: str, description: str, body: str) -> str:
-        """Records a folded answer so it need not be recomputed. Returns its id.
-
-        `scope` is the question's meaning, put so paraphrases land on one
-        scope. Written only at the user's word.
-        """
-        _one_line("scope", scope)
-        return self.writer.write_entry(
-            type="snapshot",
-            version=SNAPSHOT_VERSION,
-            # The day it was taken: a snapshot is an event in its own right.
-            event_date=dt.date.today().isoformat(),
-            description=description,
-            body=body,
-            details={"scope": scope},
-        )
-
-    def write_entity(
-        self,
-        *,
-        slug: str,
-        name: str,
-        kind: str,
-        body: str,
-        aliases: Sequence[str] = (),
-        source: str | None = None,
-    ) -> str:
-        """Records an entity: a person, thing, or topic entries are about. Returns its id.
-
-        Entries name it by `slug`. `name` is what it is called, `kind` what
-        sort of thing it is, and `aliases` the
-        other names it goes by. Writing a slug already recorded restates
-        that entity: its name, kind, and body become the newest statement's,
-        and its aliases add to those already recorded.
-        """
-        _slug("slug", slug)
-        _one_line("name", name)
-        _one_line("kind", kind)
-        return self.writer.write_entry(
-            type="entity",
-            version=ENTITY_VERSION,
-            # The day it was stated: an entity is restated, never edited.
-            event_date=dt.date.today().isoformat(),
-            description=name,
-            body=body,
-            source=source,
-            details={"slug": slug, "kind": kind, "aliases": _lines("aliases", aliases)},
-        )
-
-
-def _one_line(name: str, value: object) -> None:
-    if not isinstance(value, str) or not value.strip() or value.splitlines() != [value]:
-        raise RecordError(f"{name} must be one line of non-empty text")
-
-
-def _slug(name: str, value: object) -> None:
-    if not isinstance(value, str) or _SLUG.fullmatch(value) is None:
-        raise RecordError(f"{name} must be a slug, lowercase letters and digits in words joined by hyphens: {value!r}")
+            raise UnknownLinks(missing)
+        return links
 
 
 def _lines(name: str, values: object) -> list[str]:
@@ -190,12 +142,6 @@ def _lines(name: str, values: object) -> list[str]:
     if isinstance(values, str) or not isinstance(values, Sequence):
         raise RecordError(f"{name} must be a list")
     for value in values:
-        _one_line(name, value)
+        if not isinstance(value, str) or not value.strip() or value.splitlines() != [value]:
+            raise RecordError(f"{name} must each be one line of non-empty text")
     return list(dict.fromkeys(values))
-
-
-def _slugs(name: str, values: object) -> list[str]:
-    values = _lines(name, values)
-    for value in values:
-        _slug(name, value)
-    return values

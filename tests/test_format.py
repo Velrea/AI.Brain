@@ -19,6 +19,15 @@ def test_a_new_file_is_named_for_the_time_it_is_started():
     "overrides",
     [
         {"type": ""},
+        {"type": "Journal entry"},
+        {"slugs": []},
+        {"slugs": ["one", "two"]},
+        {"slugs": ["Not A Slug"]},
+        {"links": ["Not A Slug"]},
+        {"links": "zorblax"},
+        {"aliases": [" "]},
+        {"aliases": ["two\nlines"]},
+        {"revises": ["description"]},
         {"description": "   "},
         {"description": "two\nlines"},
         {"body": "  \n"},
@@ -31,9 +40,16 @@ def test_a_new_file_is_named_for_the_time_it_is_started():
     ],
 )
 def test_a_blank_or_invalid_field_is_rejected(overrides):
-    fields = {"source": None, "details": {}} | entry(**overrides)
+    fields = {"source": None, "details": {}, "aliases": [], "links": [], "revises": []} | entry(**overrides)
     with pytest.raises(RecordError):
         check_entry(**fields)
+
+
+def test_a_revision_may_add_slugs_and_name_what_it_replaces():
+    fields = {"source": None, "details": {}, "aliases": [], "links": [], "body": ""} | entry()
+    check_entry(**fields | {"entry": "0199a8c4-0000-7000-8000-000000000000", "slugs": [], "revises": ["links"]})
+    with pytest.raises(RecordError, match="revises"):
+        check_entry(**fields | {"entry": "0199a8c4-0000-7000-8000-000000000000", "revises": ["body"]})
 
 
 def test_a_record_is_one_line_whatever_its_text_holds():

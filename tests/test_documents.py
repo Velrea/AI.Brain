@@ -4,6 +4,8 @@ import pytest
 
 from brain.documents import DocumentError, Documents
 
+from conftest import create
+
 
 @pytest.fixture
 def documents(brain_dir):
@@ -98,12 +100,11 @@ def test_an_original_that_cannot_be_removed_is_filed_and_reported(documents, bra
     assert invoice.exists()
 
 
-def test_contents_an_entry_already_names_are_refused_wherever_they_would_go(brain_dir, reader, entries, invoice):
+def test_contents_a_document_entry_names_are_refused_wherever_they_would_go(brain_dir, reader, entries, invoice):
     documents = Documents(brain_dir, reader)
     filed = documents.store(invoice, "car/invoice.pdf")
-    entry_id = entries.write_journal(
-        event_date="2026-09-14", description="Oil change invoice", body="Filed.", documents=[filed],
-    )
+    entry_id = create(entries, "oil-change-invoice", type="document", description="Oil change invoice",
+                      details=filed)
 
     with pytest.raises(DocumentError, match="already filed at 'car/invoice.pdf'") as refused:
         documents.store(invoice, "car/another.pdf", move=True)

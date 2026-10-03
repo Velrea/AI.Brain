@@ -7,8 +7,8 @@ them. Every read catches it up first, taking in only the complete lines each
 file has gained since, so a sealed file is read once in its life.
 
 A correction is applied once, when it arrives: the index keeps every record,
-and each entry as it stands now, with its revisions applied, or an entity's
-statements as one.
+and each entry as it stands now, with its revisions applied and any entry
+merged into it noted.
 """
 
 import contextlib
@@ -20,9 +20,9 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from .format import brain_key, events_dir, is_event_file
+from .format import REVISABLE, brain_key, events_dir, is_event_file
 
-VERSION = 1
+VERSION = 2
 """The index's own layout. A change names a new file, so sessions running two
 versions of the plugin never rebuild each other's index."""
 
@@ -32,45 +32,51 @@ BUSY_TIMEOUT = 30.0
 CACHE_KB = 64 * 1024
 """The most memory, in KiB, a connection's page cache holds."""
 
-REVISABLE = ("description", "event_date", "entities")
-"""What a revision can replace. A body is never replaced; a revision's body is an amendment."""
+_TABLES = ("files", "records", "entries", "slugs", "links", "forms", "words")
 
-_TABLES = ("files", "records", "entries", "subjects", "forms", "words")
-
-# Read in this order from `records`, so a row unpacks as a Record.
-_RECORD = "id, entry, type, version, recorded_at, event_date, description, source, body, details, slug"
+# Read in this order from `records`, so a row unpacks as a record.
+_RECORD = (
+    "id, entry, type, version, recorded_at, event_date, description, source, body,"
+    " slugs, aliases, links, revises, details"
+)
 
 _SCHEMA = (
     # How many bytes of each file are taken in: every complete line before that point.
     "CREATE TABLE IF NOT EXISTS files (name TEXT PRIMARY KEY, offset INTEGER NOT NULL) WITHOUT ROWID",
-    # Every record once, as its line holds it, except an original entry's body, which
-    # `entries` keeps. `slug` is set on an entity's statements.
+    # Every record once, as its line holds it, except an original's body, which
+    # `entries` keeps. The lists and details are JSON.
     """CREATE TABLE IF NOT EXISTS records (
         id TEXT PRIMARY KEY, entry TEXT NOT NULL, type TEXT NOT NULL, version INTEGER,
         recorded_at TEXT, event_date TEXT NOT NULL, description TEXT NOT NULL, source TEXT,
-        body TEXT, details TEXT NOT NULL, slug TEXT
+        body TEXT, slugs TEXT NOT NULL, aliases TEXT NOT NULL, links TEXT NOT NULL,
+        revises TEXT NOT NULL, details TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS records_entry ON records (entry)",
-    "CREATE INDEX IF NOT EXISTS records_slug ON records (slug) WHERE slug IS NOT NULL",
-    # Every entry as it stands now. `key` is the entry's id, or `entity:<slug>` for an
-    # entity, whose `id` is then its newest statement's. `changed_at` is the latest
-    # `recorded_at` among the entry's records; `amended` is its amendments as plain text.
+    # Every entry as it stands now, by its original's id. `slug` is the slug it was
+    # created under; `changed_at` the latest `recorded_at` among its records; `amended`
+    # its amendments as plain text; `merged_into` the entry that took its slug, if any.
     """CREATE TABLE IF NOT EXISTS entries (
-        rowid INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, id TEXT NOT NULL,
-        type TEXT NOT NULL, version INTEGER, recorded_at TEXT, changed_at TEXT,
-        event_date TEXT NOT NULL, description TEXT NOT NULL, source TEXT, body TEXT NOT NULL,
-        details TEXT NOT NULL, amendments TEXT NOT NULL, amended TEXT NOT NULL
+        rowid INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, slug TEXT, type TEXT NOT NULL,
+        version INTEGER, recorded_at TEXT, changed_at TEXT, event_date TEXT NOT NULL,
+        description TEXT NOT NULL, source TEXT, body TEXT NOT NULL, slugs TEXT NOT NULL,
+        aliases TEXT NOT NULL, links TEXT NOT NULL, details TEXT NOT NULL,
+        amendments TEXT NOT NULL, amended TEXT NOT NULL, merged_into TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS entries_order ON entries (event_date, id)",
-    # The entities each entry names, and each entity naming itself.
-    """CREATE TABLE IF NOT EXISTS subjects (
-        slug TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (slug, key)
+    "CREATE INDEX IF NOT EXISTS entries_slug ON entries (slug)",
+    # A search by name compares only the entries of its types; few entries are ever merged.
+    "CREATE INDEX IF NOT EXISTS entries_type ON entries (type) WHERE merged_into IS NULL",
+    "CREATE INDEX IF NOT EXISTS entries_merged ON entries (merged_into) WHERE merged_into IS NOT NULL",
+    # The slugs each entry carries; `added` marks one a revision added.
+    """CREATE TABLE IF NOT EXISTS slugs (
+        slug TEXT NOT NULL, id TEXT NOT NULL, added INTEGER NOT NULL, PRIMARY KEY (slug, id)
     ) WITHOUT ROWID""",
-    "CREATE INDEX IF NOT EXISTS subjects_key ON subjects (key)",
-    # Each entity's slug, name, and aliases, as `resolve` compares them.
-    """CREATE TABLE IF NOT EXISTS forms (
-        slug TEXT NOT NULL, form TEXT NOT NULL, PRIMARY KEY (slug, form)
-    ) WITHOUT ROWID""",
+    "CREATE INDEX IF NOT EXISTS slugs_id ON slugs (id)",
+    # The slugs each entry links to.
+    "CREATE TABLE IF NOT EXISTS links (slug TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (slug, id)) WITHOUT ROWID",
+    "CREATE INDEX IF NOT EXISTS links_id ON links (id)",
+    # Each entry's slugs, aliases, and description, as a search by name compares them.
+    "CREATE TABLE IF NOT EXISTS forms (form TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (id, form)) WITHOUT ROWID",
     # Full-text search over each entry's words, kept in step with `entries`.
     """CREATE VIRTUAL TABLE IF NOT EXISTS words USING fts5 (
         description, body, amended, content = 'entries', content_rowid = 'rowid',
@@ -266,9 +272,6 @@ def _parse(line: bytes) -> tuple | None:
     id, entry, type, event_date, description, body = required
     version, recorded_at, source = (record.get(name) for name in ("version", "recorded_at", "source"))
     details = record.get("details")
-    details = details if isinstance(details, dict) else {}
-    slug = details.get("slug")
-    is_statement = type == "entity" and entry == id and isinstance(slug, str) and slug
     return (
         id, entry, type,
         version if isinstance(version, int) and not isinstance(version, bool) else None,
@@ -276,144 +279,130 @@ def _parse(line: bytes) -> tuple | None:
         event_date, description,
         source if isinstance(source, str) else None,
         body,
-        json.dumps(details, ensure_ascii=False, separators=(",", ":")),
-        slug if is_statement else None,
+        *(_json(_texts(record.get(name))) for name in ("slugs", "aliases", "links", "revises")),
+        _json(details if isinstance(details, dict) else {}),
     )
 
 
 def _add(con: sqlite3.Connection, records: list[tuple]) -> None:
     """Adds records, each id once, and settles every entry they touch."""
-    rows, bodies, entries, slugs = [], {}, set(), set()
+    rows, bodies, entries = [], {}, set()
     for record in records:
-        id, entry, *_, slug = record
-        if slug is not None:
-            slugs.add(slug)
-        else:
-            entries.add(entry)  # An original's own id, or the entry a revision revises.
-            if entry == id:
-                # Its body goes to `entries` alone, so the index holds it once.
-                bodies.setdefault(id, record[8])
-                record = (*record[:8], None, *record[9:])
+        id, entry = record[:2]
+        entries.add(entry)  # An original's own id, or the entry a revision revises.
+        if entry == id:
+            # Its body goes to `entries` alone, so the index holds it once.
+            bodies.setdefault(id, record[8])
+            record = (*record[:8], None, *record[9:])
         rows.append(record)
-    con.executemany(f"INSERT OR IGNORE INTO records ({_RECORD}) VALUES ({', '.join('?' * 11)})", rows)
-    _settle_entries(con, sorted(entries), bodies)
-    _settle_entities(con, sorted(slugs))
+    con.executemany(f"INSERT OR IGNORE INTO records ({_RECORD}) VALUES ({', '.join('?' * 14)})", rows)
+    slugs = _settle_entries(con, sorted(entries), bodies)
+    _settle_merges(con, sorted(slugs))
 
 
-def _settle_entries(con: sqlite3.Connection, keys: list[str], bodies: dict[str, str]) -> None:
-    """Rewrites each entry as it stands now: its original with its revisions applied.
+def _settle_entries(con: sqlite3.Connection, ids: list[str], bodies: dict[str, str]) -> set[str]:
+    """Rewrites each entry as it stands now: its original with its revisions applied,
+    and returns every slug the entries carry.
 
-    A revision is a journal record whose `entry` names an original journal entry.
-    For each field, the newest revision setting it wins, by id, so two machines
-    revising different fields before they sync both hold. A revision whose
-    original has not arrived waits in `records` until it does. `bodies` are the
-    bodies of originals just taken in; an earlier one's is in its entry's row.
+    A revision is a record whose `entry` names an original of the same type. For
+    each field it replaces, the newest revision setting it wins, by id, so two
+    machines revising different fields before they sync both hold; each of its
+    `details` fields replaces the entry's, a null removing it; its slugs and
+    aliases add to the entry's, so two machines adding names lose neither. A
+    revision whose original has not arrived waits in `records` until it does.
+    `bodies` are the bodies of originals just taken in; an earlier one's is in
+    its entry's row.
     """
-    if not keys:
-        return
-    wanted = json.dumps(keys)
+    if not ids:
+        return set()
+    wanted = json.dumps(ids)
     bodies = dict(con.execute(
-        "SELECT key, body FROM entries WHERE key IN (SELECT value FROM json_each(?))", (wanted,),
+        "SELECT id, body FROM entries WHERE id IN (SELECT value FROM json_each(?))", (wanted,),
     )) | bodies
     originals = {
         row[0]: row for row in con.execute(
-            f"SELECT {_RECORD} FROM records"
-            " WHERE id IN (SELECT value FROM json_each(?)) AND entry = id AND slug IS NULL",
+            f"SELECT {_RECORD} FROM records WHERE id IN (SELECT value FROM json_each(?)) AND entry = id",
             (wanted,),
         )
     }
     revisions = defaultdict(list)
     for row in con.execute(
-        f"SELECT {_RECORD} FROM records"
-        " WHERE entry IN (SELECT value FROM json_each(?)) AND id != entry AND type = 'journal'"
+        f"SELECT {_RECORD} FROM records WHERE entry IN (SELECT value FROM json_each(?)) AND id != entry"
         " ORDER BY id",
         (wanted,),
     ):
         revisions[row[1]].append(row)
-    _remove(con, [(key,) for key in keys])
-    rows, subjects = [], []
-    for key in keys:
-        original = originals.get(key)
+    _remove(con, [(id,) for id in ids])
+    rows, slug_rows, link_rows, form_rows, carried = [], [], [], [], set()
+    for id in ids:
+        original = originals.get(id)
         if original is None:
             continue
-        id, _, type, version, recorded_at, event_date, description, source, _, details, _ = original
-        body = bodies[key]
-        details = json.loads(details)
+        _, _, type, version, recorded_at, event_date, description, source, _, slugs, aliases, links, _, details = original
+        slugs, aliases, links, details = json.loads(slugs), json.loads(aliases), json.loads(links), json.loads(details)
+        created = list(slugs)
         amendments, changed_at = [], recorded_at
-        for revision in revisions[key] if type == "journal" else ():
-            r_id, _, _, _, r_recorded_at, r_event_date, r_description, _, r_body, r_details, _ = revision
-            r_details = json.loads(r_details)
-            sets = r_details.get("revises")
-            sets = set(sets) & set(REVISABLE) if isinstance(sets, list) else set()
+        for revision in revisions[id]:
+            r_id, _, r_type, _, r_recorded_at, r_event_date, r_description, _, r_body, *r_lists, r_details = revision
+            if r_type != type:
+                continue
+            r_slugs, r_aliases, r_links, r_revises = map(json.loads, r_lists)
+            sets = set(r_revises) & set(REVISABLE)
             if "description" in sets:
                 description = r_description
             if "event_date" in sets:
                 event_date = r_event_date
-            if "entities" in sets:
-                details["entities"] = r_details.get("entities") or []
+            if "links" in sets:
+                links = r_links
+            slugs += [slug for slug in r_slugs if slug not in slugs]
+            aliases += [alias for alias in r_aliases if alias not in aliases]
+            for name, value in json.loads(r_details).items():
+                if value is None:
+                    details.pop(name, None)
+                else:
+                    details[name] = value
             if r_body.strip():
                 amendments.append({"id": r_id, "recorded_at": r_recorded_at, "body": r_body})
             changed_at = max(filter(None, (changed_at, r_recorded_at)), default=None)
-        if details.get("entities") == []:
-            del details["entities"]
         rows.append((
-            key, id, type, version, recorded_at, changed_at, event_date, description, source, body,
-            _json(details), _json(amendments), "\n\n".join(a["body"] for a in amendments),
+            id, created[0] if created else None, type, version, recorded_at, changed_at, event_date,
+            description, source, bodies[id], _json(slugs), _json(aliases), _json(links), _json(details),
+            _json(amendments), "\n\n".join(a["body"] for a in amendments),
         ))
-        subjects += [(slug, key) for slug in _texts(details.get("entities"))]
-    _insert(con, rows, subjects)
-
-
-def _settle_entities(con: sqlite3.Connection, slugs: list[str]) -> None:
-    """Rewrites each entity as its statements hold it now: its name, kind, and body
-    the newest statement's, by event date and then id, and its aliases every
-    statement's, so two machines adding aliases before they sync lose neither."""
-    if not slugs:
-        return
-    statements = defaultdict(list)
-    for row in con.execute(
-        f"SELECT {_RECORD} FROM records WHERE slug IN (SELECT value FROM json_each(?))"
-        " ORDER BY event_date DESC, id DESC",
-        (json.dumps(slugs),),
-    ):
-        statements[row[-1]].append(row)
-    keys = [f"entity:{slug}" for slug in slugs]
-    _remove(con, [(key,) for key in keys])
-    con.executemany("DELETE FROM forms WHERE slug = ?", [(slug,) for slug in slugs])
-    rows, subjects, forms = [], [], []
-    for slug, key in zip(slugs, keys):
-        newest = statements[slug][0]
-        id, _, type, version, recorded_at, event_date, name, source, body, details, _ = newest
-        details = json.loads(details)
-        aliases = sorted({
-            alias for statement in statements[slug]
-            for alias in _texts(json.loads(statement[9]).get("aliases"))
-        })
-        details["aliases"] = aliases
-        changed_at = max(filter(None, (statement[4] for statement in statements[slug])), default=None)
-        rows.append((
-            key, id, type, version, recorded_at, changed_at, event_date, name, source, body,
-            _json(details), "[]", "",
-        ))
-        subjects.append((slug, key))
-        forms += {(slug, form) for form in map(plain, [slug, name, *aliases]) if form}
-    _insert(con, rows, subjects)
-    con.executemany("INSERT OR IGNORE INTO forms (slug, form) VALUES (?, ?)", forms)
-
-
-def _remove(con: sqlite3.Connection, keys: list[tuple]) -> None:
-    con.executemany("DELETE FROM entries WHERE key = ?", keys)
-    con.executemany("DELETE FROM subjects WHERE key = ?", keys)
-
-
-def _insert(con: sqlite3.Connection, rows: list[tuple], subjects: list[tuple]) -> None:
+        slug_rows += [(slug, id, int(slug not in created)) for slug in slugs]
+        link_rows += [(slug, id) for slug in links]
+        form_rows += {(form, id) for form in map(plain, [*slugs, *aliases, description]) if form}
+        carried.update(slugs)
     con.executemany(
-        "INSERT INTO entries (key, id, type, version, recorded_at, changed_at, event_date,"
-        " description, source, body, details, amendments, amended)"
-        f" VALUES ({', '.join('?' * 13)})",
+        "INSERT INTO entries (id, slug, type, version, recorded_at, changed_at, event_date, description,"
+        " source, body, slugs, aliases, links, details, amendments, amended)"
+        f" VALUES ({', '.join('?' * 16)})",
         rows,
     )
-    con.executemany("INSERT OR IGNORE INTO subjects (slug, key) VALUES (?, ?)", subjects)
+    con.executemany("INSERT OR IGNORE INTO slugs (slug, id, added) VALUES (?, ?, ?)", slug_rows)
+    con.executemany("INSERT OR IGNORE INTO links (slug, id) VALUES (?, ?)", link_rows)
+    con.executemany("INSERT OR IGNORE INTO forms (form, id) VALUES (?, ?)", form_rows)
+    return carried
+
+
+def _settle_merges(con: sqlite3.Connection, slugs: list[str]) -> None:
+    """Notes, for each entry created under one of `slugs`, the entry that took that
+    slug in a revision, if one has: the entry it is merged into. Two entries created
+    under one slug are both kept; only a revision's slug merges. Where several
+    entries took it, the lowest id holds, so every machine settles the same way."""
+    if slugs:
+        con.execute(
+            "UPDATE entries SET merged_into = ("
+            "  SELECT min(taken.id) FROM slugs AS taken"
+            "  WHERE taken.slug = entries.slug AND taken.added = 1 AND taken.id != entries.id"
+            ") WHERE slug IN (SELECT value FROM json_each(?))",
+            (json.dumps(slugs),),
+        )
+
+
+def _remove(con: sqlite3.Connection, ids: list[tuple]) -> None:
+    for table in ("entries", "slugs", "links", "forms"):
+        con.executemany(f"DELETE FROM {table} WHERE id = ?", ids)
 
 
 def plain(name: str) -> str:
@@ -421,7 +410,7 @@ def plain(name: str) -> str:
     return " ".join("".join(ch if ch.isalnum() else " " for ch in name.lower()).split())
 
 
-def _texts(values: object) -> Iterable[str]:
+def _texts(values: object) -> list[str]:
     return [value for value in values if isinstance(value, str)] if isinstance(values, list) else []
 
 

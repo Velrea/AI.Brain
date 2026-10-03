@@ -1,11 +1,12 @@
 """The documents store: original files, kept in the Brain folder.
 
 A filed document is a file at a path inside `documents/`, with its sha256,
-copied or moved there. A path, once filed, keeps its contents: filing the
+copied or moved there, and recorded afterwards as an entry of type `document`
+naming both in its details. A path, once filed, keeps its contents: filing the
 same contents there again returns it as it is, and filing others there is
 refused, so a pointer to a document never comes to point at something else.
-Contents an entry already names are refused wherever they would be filed, so
-a document is filed once.
+Contents a document entry already names are refused wherever they would be
+filed, so a document is filed once.
 """
 
 import contextlib
@@ -29,6 +30,9 @@ _FORBIDDEN = re.compile(r'[<>:"\\|?*\x00-\x1f]')
 _RESERVED = re.compile(r"(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
+DOCUMENT = "document"
+"""The type of the entry that records a filed document, by its path and sha256."""
+
 
 class DocumentError(ValueError):
     """A document that cannot be filed as asked."""
@@ -37,7 +41,7 @@ class DocumentError(ValueError):
 class Documents:
     """Files documents into one Brain folder's `documents/`, and lists them.
 
-    Given a `reader`, filing refuses contents an entry already names.
+    Given a `reader`, filing refuses contents a document entry already names.
     """
 
     def __init__(self, brain_dir: Path, reader: "Reader | None" = None):
@@ -52,7 +56,7 @@ class Documents:
         `path` is relative, with `/` between folders, which are created as
         needed. Raises DocumentError for a source that
         is not a file, a path that is not one, a path that already holds other
-        contents, contents an entry already names, and a move of a document
+        contents, contents a document entry already names, and a move of a document
         already filed, which would leave the entries naming it pointing at
         nothing. A source that cannot be removed raises DocumentError too,
         after the document is filed, with its path and sha256.
@@ -119,33 +123,28 @@ class Documents:
         return {"folders": folders, "documents": documents}
 
     def _unnamed(self, digest: str) -> None:
-        """Raises DocumentError when an entry already names these contents."""
-        hits = self.reader.search(documents=[digest])
+        """Raises DocumentError when a document entry already names these contents."""
+        hits = self.reader.search(types=[DOCUMENT], details={"sha256": digest})
         if not hits:
             return
         records = self.reader.read([hit.id for hit in hits])
-        paths = sorted({
-            document["path"]
-            for record in records
-            for document in record["details"].get("documents", [])
-            if document.get("sha256") == digest
-        })
+        paths = sorted({record["details"]["path"] for record in records})
         named = "; ".join(f"{record['id']} ({record['description']})" for record in records)
         raise DocumentError(
-            f"these contents are already filed at {', '.join(map(repr, paths))}, named by {named}:"
+            f"these contents are already filed at {', '.join(map(repr, paths))}, recorded by {named}:"
             f" nothing was filed, and the original is where it was"
         )
 
 
-def reference(document: object) -> dict:
-    """A filed document as an entry names it, `{"path": ..., "sha256": ...}`,
-    the shape `Documents.store` returns, each part checked."""
-    if not isinstance(document, Mapping) or set(document) != {"path", "sha256"}:
-        raise DocumentError('a document is named by {"path": ..., "sha256": ...}, as filing it returned')
-    _parts(document["path"])
-    if not isinstance(document["sha256"], str) or not _SHA256.fullmatch(document["sha256"]):
-        raise DocumentError(f"a document's sha256 is 64 lowercase hex characters: {document['sha256']!r}")
-    return {"path": document["path"], "sha256": document["sha256"]}
+def check_document(details: Mapping) -> None:
+    """Raises DocumentError unless a document entry's details name a filed
+    document by its `path` and `sha256`, as filing it returned."""
+    if not isinstance(details.get("path"), str) or not isinstance(details.get("sha256"), str):
+        raise DocumentError('a document entry names its document in details by "path" and "sha256", as filing it'
+                            " returned")
+    _parts(details["path"])
+    if not _SHA256.fullmatch(details["sha256"]):
+        raise DocumentError(f"a document's sha256 is 64 lowercase hex characters: {details['sha256']!r}")
 
 
 def _parts(path: object) -> list[str]:

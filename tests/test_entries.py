@@ -1,108 +1,116 @@
-import datetime as dt
-
 import pytest
 
 from brain.documents import DocumentError
-from brain.entries import UnknownEntities
+from brain.entries import SlugTaken, UnknownLinks
 from brain.format import RecordError
 
-from conftest import event_files, records_of
+from conftest import create, event_files, records_of
 
 
-def test_a_journal_is_written_as_a_version_1_journal_with_no_details(entries, brain_dir):
-    entry_id = entries.write_journal(
-        event_date="2026-09-14", description="Oil change", body="Oil and filter changed."
+def written(brain_dir) -> list[dict]:
+    return [record for path in event_files(brain_dir) for record in records_of(path)]
+
+
+def test_an_entry_of_any_type_is_created_under_its_slug(entries, brain_dir):
+    create(entries, "zorblax", type="entity")
+    entry_id = entries.write(
+        type="task", version=2, slug="renew-the-permit", event_date="2026-09-14", description="Renew the permit",
+        body="Due in May.", links=["zorblax", "zorblax"], aliases=["permit", "permit"], details={"due": "2027-05-01"},
+        source="voice",
     )
 
-    [path] = event_files(brain_dir)
-    [record] = records_of(path)
-    assert record["id"] == entry_id
-    assert (record["type"], record["version"], record["details"]) == ("journal", 1, {})
-
-
-def test_a_snapshot_is_written_on_the_day_taken_with_its_scope(entries, brain_dir):
-    entry_id = entries.write_snapshot(
-        scope="current potions", description="Current potions", body="Zorblax, two drops."
+    *_, record = written(brain_dir)
+    assert record["id"] == record["entry"] == entry_id
+    assert (record["type"], record["version"], record["source"]) == ("task", 2, "voice")
+    assert (record["slugs"], record["aliases"], record["links"], record["revises"]) == (
+        ["renew-the-permit"], ["permit"], ["zorblax"], [],
     )
-    with pytest.raises(RecordError):
-        entries.write_snapshot(scope=" ", description="Blank scope", body="Nothing.")
-
-    [path] = event_files(brain_dir)
-    [record] = records_of(path)
-    assert record["id"] == entry_id
-    assert (record["type"], record["version"]) == ("snapshot", 1)
-    assert record["event_date"] == dt.date.today().isoformat()
-    assert record["details"] == {"scope": "current potions"}
+    assert record["details"] == {"due": "2027-05-01"}
 
 
-def test_a_journal_names_its_entities_once_each_by_slug(entries, brain_dir):
-    for slug in ("zorblax", "dr-jekyll"):
-        entries.write_entity(slug=slug, name=slug, kind="thing", body="Recorded.")
-    entries.write_journal(
-        event_date="2026-09-14", description="Doubled the Zorblax", body="Dr. J doubled it.",
-        entities=["zorblax", "dr-jekyll", "zorblax"],
-    )
-    for bad in (["Dr. Jekyll"], "zorblax", [""]):
-        with pytest.raises(RecordError):
-            entries.write_journal(event_date="2026-09-14", description="Bad", body="Bad.", entities=bad)
+def test_a_slug_already_carried_is_refused_naming_the_entry(entries, brain_dir):
+    held = create(entries, "zorblax", type="entity", description="Zorblax")
 
-    [path] = event_files(brain_dir)
-    *_, record = records_of(path)
-    assert record["details"] == {"entities": ["zorblax", "dr-jekyll"]}
+    with pytest.raises(SlugTaken) as refused:
+        create(entries, "zorblax", description="Another Zorblax")
+
+    assert held in str(refused.value) and "Zorblax" in str(refused.value)
+    assert len(written(brain_dir)) == 1
 
 
-def test_a_journal_naming_an_unrecorded_entity_is_refused(entries, brain_dir):
-    entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
+def test_a_link_no_entry_carries_is_refused_and_nothing_is_written(entries, brain_dir):
+    create(entries, "zorblax", type="entity")
 
-    with pytest.raises(UnknownEntities) as refused:
-        entries.write_journal(
-            event_date="2026-09-14", description="Doubled it", body="Dr. J doubled it.",
-            entities=["zorblax", "dr-jekyll", "mr-hyde"],
-        )
+    with pytest.raises(UnknownLinks) as refused:
+        create(entries, "doubled-it", links=["zorblax", "dr-jekyll", "mr-hyde"])
 
     assert refused.value.slugs == ["dr-jekyll", "mr-hyde"]
-    [path] = event_files(brain_dir)
-    assert [record["type"] for record in records_of(path)] == ["entity"]  # nothing written
+    assert [record["type"] for record in written(brain_dir)] == ["entity"]
 
 
-def test_a_journal_names_its_filed_documents_once_each(entries, brain_dir):
-    invoice = {"path": "car/invoice.pdf", "sha256": "a" * 64}
-    entries.write_journal(event_date="2026-09-14", description="Oil change", body="Oil changed.",
-                          documents=[invoice, dict(invoice)])
-
-    [path] = event_files(brain_dir)
-    [record] = records_of(path)
-    assert record["details"] == {"documents": [invoice]}
-
-
-@pytest.mark.parametrize("documents", [
-    [{"path": "car/invoice.pdf"}],
-    [{"path": "car/invoice.pdf", "sha256": "A" * 64}],
-    [{"path": "../invoice.pdf", "sha256": "a" * 64}],
-    [{"path": "car/invoice.pdf", "sha256": "a" * 64, "size": 3}],
-    ["car/invoice.pdf"],
+@pytest.mark.parametrize("fields", [
+    {"slug": None}, {"slug": "Dr Jekyll"}, {"type": "Journal"}, {"links": "zorblax"}, {"links": ["Zorblax"]},
+    {"aliases": "Dr. J"}, {"aliases": ["two\nlines"]}, {"details": ["not", "fields"]}, {"body": " "},
 ])
-def test_a_journal_naming_a_document_badly_is_refused(entries, brain_dir, documents):
-    with pytest.raises(DocumentError):
-        entries.write_journal(event_date="2026-09-14", description="Oil change", body="Oil changed.",
-                              documents=documents)
+def test_a_badly_formed_entry_is_refused(entries, brain_dir, fields):
+    with pytest.raises(RecordError):
+        create(entries, **{"slug": "an-entry", **fields})
     assert event_files(brain_dir) == []
 
 
-def test_an_entity_is_written_through_its_own_method(entries, brain_dir):
-    entity_id = entries.write_entity(
-        slug="dr-jekyll", name="Dr. Jekyll", kind="person", aliases=["Dr. J", "Henry"],
-        body="The family physician.",
+def test_a_revision_replaces_fields_adds_names_and_keeps_its_amendment(entries, reader, brain_dir):
+    create(entries, "zorblax", type="entity")
+    original = create(entries, "started-zorblax", details={"dose": 2, "form": "drops"})
+    revision = entries.write(
+        type="journal", version=1, entry=original, description="Started Zorblax tincture",
+        event_date="2026-01-03", links=["zorblax"], slug="zorblax-start", aliases=["the start"],
+        details={"dose": 3, "form": None}, body="Correction: it was three drops.",
     )
-    for bad in ({"slug": "Dr Jekyll"}, {"kind": " "}, {"aliases": "Dr. J"}, {"aliases": ["two\nlines"]}):
-        with pytest.raises(RecordError):
-            entries.write_entity(**{
-                "slug": "dr-jekyll", "name": "Dr. Jekyll", "kind": "person", "body": "Bad.", **bad,
-            })
 
-    [path] = event_files(brain_dir)
-    [record] = records_of(path)
-    assert record["id"] == entity_id
-    assert (record["type"], record["version"], record["description"]) == ("entity", 1, "Dr. Jekyll")
-    assert record["event_date"] == dt.date.today().isoformat()
-    assert record["details"] == {"slug": "dr-jekyll", "kind": "person", "aliases": ["Dr. J", "Henry"]}
+    [record] = reader.read([original])
+    assert (record["description"], record["event_date"], record["links"]) == (
+        "Started Zorblax tincture", "2026-01-03", ["zorblax"],
+    )
+    assert (record["slugs"], record["aliases"], record["details"]) == (
+        ["started-zorblax", "zorblax-start"], ["the start"], {"dose": 3},
+    )
+    assert record["body"] == "Recorded."
+    assert [(a["id"], a["body"]) for a in record["amendments"]] == [(revision, "Correction: it was three drops.")]
+    *_, on_disk = written(brain_dir)
+    assert on_disk["entry"] == original
+    assert on_disk["revises"] == ["description", "event_date", "links"]
+    assert on_disk["details"] == {"dose": 3, "form": None}
+
+
+def test_a_revision_that_changes_nothing_or_names_no_entry_of_its_type_is_refused(entries, brain_dir):
+    original = create(entries, "started-zorblax")
+    snapshot = create(entries, "potions", type="snapshot")
+    before = len(written(brain_dir))
+
+    with pytest.raises(RecordError, match="must change"):
+        entries.write(type="journal", version=1, entry=original)
+    with pytest.raises(RecordError, match="non-empty"):
+        entries.write(type="journal", version=1, entry=original, body=" ")
+    with pytest.raises(RecordError, match="is a snapshot, not a journal"):
+        entries.write(type="journal", version=1, entry=snapshot, description="Not a journal")
+    with pytest.raises(RecordError, match="no entry"):
+        entries.write(type="journal", version=1, entry="0199a8c4-0000-7000-8000-000000000000", description="Gone")
+    with pytest.raises(UnknownLinks):
+        entries.write(type="journal", version=1, entry=original, links=["glimmerol"])
+    assert len(written(brain_dir)) == before
+
+
+def test_a_document_entry_names_its_document_by_path_and_hash(entries, brain_dir):
+    filed = {"path": "car/invoice.pdf", "sha256": "a" * 64}
+    document = create(entries, "oil-change-invoice", type="document", details={**filed, "issuer": "Garage"})
+    for details in ({"path": "car/invoice.pdf"}, {**filed, "sha256": "A" * 64}, {**filed, "path": "../x.pdf"}):
+        with pytest.raises(DocumentError):
+            create(entries, "a-bad-document", type="document", details=details)
+    with pytest.raises(DocumentError):
+        entries.write(type="document", version=1, entry=document, details={"sha256": None})
+
+    entries.write(type="document", version=1, entry=document, details={"sha256": "b" * 64},
+                  body="The garage sent a corrected invoice.")
+    assert [record["details"] for record in written(brain_dir)] == [
+        {**filed, "issuer": "Garage"}, {"sha256": "b" * 64},
+    ]

@@ -1,6 +1,8 @@
 """The write path: validates a record, stamps it, and appends it as one line.
 
-Only this module writes the event files. Each machine appends only to files
+Only this module writes the event files, and it checks only the shape of a
+record; what an entry must obey against what is already recorded is checked
+by `entries`. Each machine appends only to files
 it created, and sessions on one machine take turns through a lock in the
 machine's plugin data folder, outside the synced folders.
 """
@@ -78,12 +80,16 @@ class Writer:
         description: str,
         body: str,
         source: str | None = None,
+        slugs: list[str] | None = None,
+        aliases: list[str] | None = None,
+        links: list[str] | None = None,
+        revises: list[str] | None = None,
         details: dict | None = None,
     ) -> str:
         """Records an entry of any type and returns its id.
 
-        Callers write through a type's own method in `entries`, which fixes
-        the type, its version, and its details. `id` and `recorded_at` are
+        Callers write through `Entries.write`, which checks what every entry
+        obeys against what is already recorded. `id` and `recorded_at` are
         stamped here, and `entry`, the entry the record belongs to, is its
         own id unless it is given: a revision names the entry it revises,
         and its body, an amendment, may be empty. Raises RecordError for a
@@ -91,14 +97,17 @@ class Writer:
         lock too long, and AppendBlocked when the file stays blocked past
         the retries.
         """
+        lists = {
+            "slugs": slugs or [], "aliases": aliases or [], "links": links or [], "revises": revises or [],
+        }
         details = {} if details is None else details
         check_entry(
             entry=entry, type=type, version=version, event_date=event_date,
-            description=description, body=body, source=source, details=details,
+            description=description, body=body, source=source, details=details, **lists,
         )
         record = {
             "type": type, "version": version, "event_date": event_date,
-            "description": description, "body": body, "details": details,
+            "description": description, "body": body, **lists, "details": details,
         }
         if source is not None:
             record["source"] = source

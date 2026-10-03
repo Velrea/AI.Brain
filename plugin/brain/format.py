@@ -21,12 +21,21 @@ _FILE_NAME = re.compile(rf"^h-(?P<id>{_UUID7})\.jsonl$")
 
 FIELDS = (
     "id", "entry", "type", "version", "recorded_at", "event_date", "description", "source", "body",
-    "details",
+    "slugs", "aliases", "links", "revises", "details",
 )
 """The envelope every record carries, in the order its line holds them. `entry` is
 the entry the record belongs to: its own id on an original, the original's on a
-revision. `source` is the only optional field. What a type adds goes in `details`,
-never beside it."""
+revision. `slugs` are the entry's names, one on an original and any added on a
+revision; `aliases` are other names it goes by; `links` are the slugs of the
+entries it is about; `revises` names what a revision replaces, and is empty on
+an original. `source` is the only optional field. What a type adds goes in
+`details`, never beside it."""
+
+REVISABLE = ("description", "event_date", "links")
+"""What a revision can replace. A body is never replaced; a revision's body is an amendment."""
+
+SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+"""A slug: lowercase letters and digits, in words joined by hyphens."""
 
 # Valid inside a JSON string, but a reader that splits lines on them would tear the record.
 _LINE_SEPARATORS = {"\u2028": "\\u2028", "\u2029": "\\u2029"}
@@ -97,16 +106,21 @@ def check_entry(
     description: str,
     body: str,
     source: str | None,
+    slugs: list,
+    aliases: list,
+    links: list,
+    revises: list,
     details: dict,
 ) -> None:
     """Raises RecordError for a blank or invalid field of the envelope.
 
     `entry` is given only for a revision, whose body is an amendment and may
-    be empty when it changes only metadata.
+    be empty when it changes only metadata. An original carries one slug and
+    revises nothing.
     """
     if entry is not None and (not isinstance(entry, str) or re.fullmatch(_UUID7, entry) is None):
         raise RecordError(f"entry must be the id of an entry: {entry!r}")
-    _text("type", type, one_line=True)
+    check_slug("type", type)
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RecordError("version must be a whole number from 1")
     _date(event_date)
@@ -115,6 +129,15 @@ def check_entry(
         _text("body", body, one_line=False)
     if source is not None:
         _text("source", source, one_line=True)
+    for name, values in (("slugs", slugs), ("links", links)):
+        for value in _list(name, values):
+            check_slug(name, value)
+    for alias in _list("aliases", aliases):
+        _text("aliases", alias, one_line=True)
+    if any(name not in REVISABLE for name in _list("revises", revises)):
+        raise RecordError(f"revises names only {', '.join(REVISABLE)}")
+    if entry is None and (len(slugs) != 1 or revises):
+        raise RecordError("an original carries one slug and revises nothing")
     if not isinstance(details, dict):
         raise RecordError("details must be an object of fields")
     for name, value in details.items():
@@ -136,6 +159,17 @@ def encode(record: dict) -> bytes:
         return line.encode("utf-8") + b"\n"
     except UnicodeEncodeError as error:
         raise RecordError("a record must be valid Unicode text") from error
+
+
+def check_slug(name: str, value: object) -> None:
+    if not isinstance(value, str) or SLUG.fullmatch(value) is None:
+        raise RecordError(f"{name} must be a slug, lowercase letters and digits in words joined by hyphens: {value!r}")
+
+
+def _list(name: str, values: object) -> list:
+    if not isinstance(values, list):
+        raise RecordError(f"{name} must be a list")
+    return values
 
 
 def _text(name: str, value: object, *, one_line: bool) -> None:

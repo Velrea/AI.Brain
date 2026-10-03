@@ -15,21 +15,37 @@ A request decides it. Unprompted, record what the user took part in and has alre
 
 Ask follow-up questions until the account is complete. Ask rather than guess at anything unclear: an entry is permanent.
 
-Resolve every subject: each person, thing, or topic that outlasts the event, and the broad subject it falls under, so a question about the whole subject finds it. Add a new name for a match as an alias with `write_entity`. Ask about an uncertain match rather than merging two things or splitting one.
+Find every subject: each person, thing, or topic that outlasts the event, and the broad subject it falls under, so a question about the whole subject finds it. Search for them all at once by `names`, with `types` of `entity`. Link to each match; record a subject with no match, or a new name for a match, through `entity`. Ask about an uncertain match rather than merging two things or splitting one. Link as well to an earlier entry this one follows on from, and to the document entries of any documents it concerns.
 
 Read the newest entry like this one and follow its layout.
 
 ## The entry
 
-- Date it the day it happened, one event per entry.
-- In the body: what happened, concretely, with every value exactly as given and everyone by name. Mark what was decided, who committed to what by when, and what was left open.
-- Keep every link or reference the account gives to where more of it lives.
-- Never write a secret in full; keep only enough of it to tell it apart.
+Record it with `write`:
+
+- `type`: `journal`
+- `version`: `1`
+- `slug`: `<YYYY-MM-DD>-<a few words naming the event>`
+- `event_date`: `<YYYY-MM-DD, the day it happened>`
+- `description`: `<one line a reader can triage from without opening the entry: what happened and what about it matters, never only the kind of event>`
+- `body`: `<Markdown: what happened, concretely, with every value exactly as given and everyone by name; what was decided, who committed to what by when, and what was left open>`
+- `links`: `<the slugs of its subjects, documents, and any entry it follows on from>`
+- `source`: `<how it arrived, in a word>`
+
+One event per entry. Keep every link or reference the account gives to where more of it lives. Never write a secret in full; keep only enough of it to tell it apart. A slug already taken gets more words.
 
 ## A document
 
-`intake` files a document, then records it here. The document is the account: ask only about what it leaves unclear. Date the entry by the event it records, carry the document's contents in the body less any boilerplate, and name it as `store_document` returned it. Documents about one event share an entry. A changed document is a new entry naming its new `sha256`.
+`intake` records a document as an entry of its own. When the document records an event, write the event's entry here, linking to the document's slug: the document is the account, so ask only about what it leaves unclear, and date the entry by the event. Documents about one event share an entry linking to each.
 
 ## Corrections
 
-Read the account against the entry it concerns. What the entry got wrong is a correction: `revise_journal` on that entry, with an amendment saying what is right. Anything the entry did not hold is new: a new entry on its own date, sharing the story's entities. An account with both gets both.
+Read the account against the entry it concerns. What the entry got wrong is a correction, a `write` revising that entry:
+
+- `type`: `journal`
+- `version`: `1`
+- `entry`: `<the id of the entry it corrects>`
+- `body`: `<an amendment saying what was wrong and what is right>`
+- `description`, `event_date`, `links`: `<only those that change, each replacing the entry's>`
+
+Anything the entry did not hold is new: a new entry on its own date, linking to the one it follows on from. An account with both gets both.

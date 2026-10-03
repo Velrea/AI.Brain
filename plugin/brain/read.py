@@ -2,19 +2,18 @@
 
 Every call catches the index up with the files first, so a machine that has
 gone quiet can come back and its records are simply there. Reading is generic:
-entries of every type are found and returned the same way, and only resolving
-names to entities knows a type. It depends on the file format and the index,
-never on the writer.
+entries of every type are found and returned the same way, and no type is
+known here. It depends on the file format and the index, never on the writer.
 """
 
 import datetime as dt
 import json
 import re
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .format import FIELDS
 from .index import Index, plain
 
 CEILING = 100
@@ -27,16 +26,23 @@ SNIPPET = 160
 SNIPPET_WORDS = 25
 """Words a hit's snippet carries around the best match of a pattern."""
 MATCHES = 5
-"""Entities resolving returns for each name, at most."""
+"""Entries a search by name finds for each name, at most."""
 LIKELY = 0.8
-"""The least score, from 0 to 1, an entity needs to be a likely match for a name."""
+"""The least score, from 0 to 1, an entry needs to be a likely match for a name."""
 
 # A pattern's terms: a "quoted phrase" or a bare word, either one excluded by a
 # leading hyphen or ending in * to match as a prefix.
 _TERM = re.compile(r'(-?)"([^"]*)"?(\*?)|(\S+)')
 # Marks where FTS5 found a match in a snippet, to tell which column matched.
 _START, _END = "\x02", "\x03"
-_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+# What `read` returns of an entry, in this order: the envelope, less what only a
+# record has, and what the entry gathers from its revisions and merges.
+_READ = (
+    "id", "type", "version", "recorded_at", "event_date", "description", "source", "body",
+    "slugs", "aliases", "links", "details", "amendments", "merged_into",
+)
+_JSON = {"slugs", "aliases", "links", "details", "amendments"}
 
 
 class PatternError(ValueError):
@@ -67,7 +73,7 @@ class TooManyHits(ValueError):
             by_date = f"search by event date; by year: {spans}"
         super().__init__(
             f"{total} entries match, more than the {CEILING} a search returns. Refine it: add"
-            f" words, entities, types, or details to narrow it, split it into more targeted"
+            f" words, slugs, types, or details to narrow it, split it into more targeted"
             f" searches, or {by_date}."
         )
 
@@ -76,20 +82,13 @@ class TooManyHits(ValueError):
 class Hit:
     id: str
     type: str
+    slugs: list[str]
     event_date: str
     recorded_at: str
     description: str
     snippet: str
-
-
-@dataclass(frozen=True)
-class Entity:
-    id: str
-    """The id of the statement that holds, to read its body."""
-    slug: str
-    name: str
-    kind: str
-    aliases: list[str]
+    names: list[str]
+    """The names searched for that found this entry, in the order asked."""
 
 
 class Reader:
@@ -103,13 +102,13 @@ class Reader:
         self,
         pattern: str | None = None,
         *,
+        slugs: list[str] | None = None,
+        names: list[str] | None = None,
         types: list[str] | None = None,
         event_date_from: str | None = None,
         event_date_to: str | None = None,
         recorded_after: str | None = None,
         details: dict[str, str] | None = None,
-        entities: list[str] | None = None,
-        documents: list[str] | None = None,
         newest_first: bool = False,
     ) -> list[Hit]:
         """Finds entries of any type and returns every one as a lean hit.
@@ -118,63 +117,69 @@ class Reader:
         or an amendment: every word must appear, in any form of it, so `drop`
         finds "drops". A "quoted phrase" must appear as written, a word or
         phrase ending in * matches as a prefix, one starting with - must not
-        appear, and OR between terms finds either side. `entities` are slugs:
-        an entry that names any of them is a hit, and so is the entity itself.
-        Given both, an entry is a hit when either finds it, so an entry whose
-        entities were missed when it was written is still found by its words.
-        The event dates are inclusive. `recorded_after` is a UTC time or date,
-        and finds entries recorded or revised after it. `details` matches a
-        type's own fields exactly. `documents` are sha256 hashes: only an
-        entry naming a filed document with one of them is a hit. Raises PatternError for a pattern with
-        nothing to look for, and TooManyHits, with how to refine it, when more
-        entries match than the ceiling.
+        appear, and OR between terms finds either side. `slugs` finds the
+        entries carrying any of them and every entry linking to a slug those
+        entries carry, so a merge's slugs find one set. `names` finds, for each
+        name, up to five entries of the given `types` whose slug, alias, or
+        description matches it in any case and punctuation, held whole as
+        words, or spelled alike. Given more than one of these, an entry is a
+        hit when any finds it, so an entry whose links were missed when it was
+        written is still found by its words. The event dates are inclusive.
+        `recorded_after` is a UTC time or date, and finds entries recorded or
+        revised after it. `details` matches a type's own fields exactly. An
+        entry merged into another is never a hit; the one it is merged into
+        is. Raises PatternError for a pattern with nothing to look for,
+        ValueError for names without types, and TooManyHits, with how to
+        refine it, when more entries match than the ceiling.
         """
-        where, params = ["true"], []
+        where, params = ["merged_into IS NULL"], []
         found, found_params = [], []
         match = _match(pattern) if pattern is not None else None
         if match is not None:
             found.append("rowid IN (SELECT rowid FROM words WHERE words MATCH ?)")
             found_params.append(match)
-        if entities is not None:
-            found.append("key IN (SELECT key FROM subjects WHERE slug IN (SELECT value FROM json_each(?)))")
-            found_params.append(json.dumps(list(entities)))
-        if found:
-            where.append(f"({' OR '.join(found)})")
-            params += found_params
-        if documents is not None:
-            for digest in documents:
-                if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
-                    raise ValueError(f"a document's sha256 is 64 lowercase hex characters: {digest!r}")
-            where.append(
-                "EXISTS (SELECT 1 FROM json_each(details, '$.documents') AS document"
-                " WHERE json_extract(document.value, '$.sha256') IN (SELECT value FROM json_each(?)))"
-            )
-            params.append(json.dumps(list(documents)))
-        if types is not None:
-            where.append("type IN (SELECT value FROM json_each(?))")
-            params.append(json.dumps(list(types)))
-        if event_date_from is not None:
-            where.append("event_date >= ?")
-            params.append(_date(event_date_from))
-        if event_date_to is not None:
-            where.append("event_date <= ?")
-            params.append(_date(event_date_to))
-        if recorded_after is not None:
-            where.append("changed_at > ?")
-            params.append(_utc(recorded_after))
-        for name, value in (details or {}).items():
-            path = _path(name)
-            # As text, the way JSON writes it, so a number or a flag matches too.
-            where.append(
-                "CASE json_type(details, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false'"
-                " ELSE CAST(json_extract(details, ?) AS TEXT) END = ?"
-            )
-            params += [path, path, str(value)]
-        conditions = " AND ".join(where)
-        order = "DESC" if newest_first else "ASC"
+        named: dict[str, list[str]] = {}
         with self.index.connect() as con:
+            if slugs is not None or names is not None:
+                ids = set()
+                if slugs is not None:
+                    ids |= _carrying_or_linking(con, _strings("slugs", slugs))
+                if names is not None:
+                    if types is None:
+                        raise ValueError(
+                            "a search by names needs types: it compares the name with every entry of those types"
+                        )
+                    named = _named(con, _strings("names", names), types)
+                    ids |= set(named)
+                found.append("id IN (SELECT value FROM json_each(?))")
+                found_params.append(json.dumps(sorted(ids)))
+            if found:
+                where.append(f"({' OR '.join(found)})")
+                params += found_params
+            if types is not None:
+                where.append("type IN (SELECT value FROM json_each(?))")
+                params.append(json.dumps(list(types)))
+            if event_date_from is not None:
+                where.append("event_date >= ?")
+                params.append(_date(event_date_from))
+            if event_date_to is not None:
+                where.append("event_date <= ?")
+                params.append(_date(event_date_to))
+            if recorded_after is not None:
+                where.append("changed_at > ?")
+                params.append(_utc(recorded_after))
+            for name, value in (details or {}).items():
+                path = _path(name)
+                # As text, the way JSON writes it, so a number or a flag matches too.
+                where.append(
+                    "CASE json_type(details, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false'"
+                    " ELSE CAST(json_extract(details, ?) AS TEXT) END = ?"
+                )
+                params += [path, path, str(value)]
+            conditions = " AND ".join(where)
+            order = "DESC" if newest_first else "ASC"
             rows = con.execute(
-                f"SELECT rowid, id, type, event_date, recorded_at, description"
+                f"SELECT rowid, id, type, slugs, event_date, recorded_at, description"
                 f" FROM entries WHERE {conditions}"
                 f" ORDER BY event_date {order}, id {order} LIMIT ?",
                 [*params, CEILING + 1],
@@ -188,76 +193,97 @@ class Reader:
                 raise TooManyHits(sum(count for _, count in days), _ranges(days))
             snippets = _snippets(con, [row[0] for row in rows], match)
         return [
-            Hit(id, type, event_date, recorded_at, description, snippets[rowid])
-            for rowid, id, type, event_date, recorded_at, description in rows
+            Hit(id, type, json.loads(slugs), event_date, recorded_at, description, snippets[rowid], named.get(id, []))
+            for rowid, id, type, slugs, event_date, recorded_at, description in rows
         ]
 
-    def resolve(self, names: list[str], *, limit: int = MATCHES) -> dict[str, list[Entity]]:
-        """The likely matching entities for each name, best first.
-
-        A name matches an entity's slug, name, or an alias the same in any
-        case and punctuation, held whole as words, or spelled alike. Each name
-        gets at most `limit` entities, and none when nothing is likely, so the
-        caller sees a few candidates, never every entity.
-        """
-        if limit < 1:
-            raise ValueError("limit must be at least 1")
-        if any(not isinstance(name, str) or not name.strip() for name in names):
-            raise ValueError("each name must be non-empty text")
-        found: dict[str, list[Entity]] = {name: [] for name in names}
-        if not found:
-            return found
+    def holders(self, slugs: list[str]) -> dict[str, list[tuple[str, str]]]:
+        """For each of `slugs` some entry carries, the id and description of every
+        entry carrying it."""
+        found = defaultdict(list)
         with self.index.connect() as con:
-            forms = con.execute("SELECT slug, form FROM forms").fetchall()
-            best = {}
-            for name in found:
-                asked = plain(name)
-                scores = {}
-                for slug, form in forms:
-                    score = _score(form, asked)
-                    if score >= LIKELY and score > scores.get(slug, 0):
-                        scores[slug] = score
-                best[name] = sorted(scores, key=lambda slug: (-scores[slug], slug))[:limit]
-            wanted = sorted({slug for slugs in best.values() for slug in slugs})
-            entities = {}
-            for id, details, name in con.execute(
-                "SELECT id, details, description FROM entries"
-                " WHERE key IN (SELECT 'entity:' || value FROM json_each(?))",
-                (json.dumps(wanted),),
-            ):
-                details = json.loads(details)
-                entities[details["slug"]] = Entity(id, details["slug"], name, details.get("kind"), details["aliases"])
-        for name, slugs in best.items():
-            found[name] = [entities[slug] for slug in slugs]
-        return found
-
-    def known_slugs(self, slugs: list[str]) -> set[str]:
-        """Those of `slugs` that some entity has been recorded under."""
-        with self.index.connect() as con:
-            rows = con.execute(
-                "SELECT DISTINCT slug FROM records WHERE slug IN (SELECT value FROM json_each(?))",
+            for slug, id, description in con.execute(
+                "SELECT slugs.slug, entries.id, entries.description FROM slugs JOIN entries USING (id)"
+                " WHERE slugs.slug IN (SELECT value FROM json_each(?)) ORDER BY entries.id",
                 (json.dumps(list(slugs)),),
-            ).fetchall()
-        return {slug for (slug,) in rows}
+            ):
+                found[slug].append((id, description))
+        return dict(found)
 
     def read(self, ids: list[str]) -> list[dict]:
-        """The full records for `ids`, in event-date order, each as it stands now.
+        """The entries for `ids`, in event-date order, each as it stands now.
 
-        An entry comes with its revisions applied and its `amendments`, oldest
-        first, under its body, which is never replaced; an entity comes as its
-        statements hold it now. The id of a revision or of an older statement
-        reads the entry it belongs to. An id not found is left out.
+        An entry comes with its revisions applied: its slugs and aliases with
+        every one added, and its `amendments`, oldest first, under its body,
+        which is never replaced. `merged_into` names the entry it is merged
+        into, if any. A revision's id reads the entry it belongs to. An id not
+        found is left out.
         """
         with self.index.connect() as con:
             rows = con.execute(
-                f"SELECT {', '.join('id' if name == 'entry' else name for name in FIELDS)}, amendments"
-                " FROM entries WHERE key IN ("
-                "   SELECT CASE WHEN slug IS NOT NULL THEN 'entity:' || slug ELSE entry END"
-                "   FROM records WHERE id IN (SELECT value FROM json_each(?))"
+                f"SELECT {', '.join(_READ)} FROM entries WHERE id IN ("
+                "   SELECT entry FROM records WHERE id IN (SELECT value FROM json_each(?))"
                 " ) ORDER BY event_date, id",
                 (json.dumps(list(ids)),),
             ).fetchall()
-        return [_record(row) for row in rows]
+        return [{name: json.loads(value) if name in _JSON else value for name, value in zip(_READ, row)}
+                for row in rows]
+
+
+def _carrying_or_linking(con: sqlite3.Connection, slugs: list[str]) -> set[str]:
+    """The entries carrying any of `slugs`, each as the entry it is merged into,
+    and every entry linking to a slug those entries, or the entries merged into
+    them, carry."""
+    merged = dict(con.execute("SELECT id, merged_into FROM entries WHERE merged_into IS NOT NULL"))
+
+    def kept(id: str) -> str:
+        seen = set()
+        while id in merged and id not in seen:
+            seen.add(id)
+            id = merged[id]
+        return id
+
+    owners = {kept(id) for (id,) in con.execute(
+        "SELECT id FROM slugs WHERE slug IN (SELECT value FROM json_each(?))", (json.dumps(slugs),),
+    )}
+    family = owners | {id for id in merged if kept(id) in owners}
+    carried = set(slugs) | {slug for (slug,) in con.execute(
+        "SELECT slug FROM slugs WHERE id IN (SELECT value FROM json_each(?))", (json.dumps(sorted(family)),),
+    )}
+    linking = {id for (id,) in con.execute(
+        "SELECT id FROM links WHERE slug IN (SELECT value FROM json_each(?))", (json.dumps(sorted(carried)),),
+    )}
+    return owners | linking
+
+
+def _named(con: sqlite3.Connection, names: list[str], types: list[str]) -> dict[str, list[str]]:
+    """For each name, up to MATCHES entries of `types` it is likely to mean, best
+    first, as each entry's id and the names that found it."""
+    # From the entries of those types to their forms, never across every entry's forms.
+    forms = con.execute(
+        "SELECT forms.id, forms.form FROM entries CROSS JOIN forms ON forms.id = entries.id"
+        " WHERE entries.merged_into IS NULL AND entries.type IN (SELECT value FROM json_each(?))",
+        (json.dumps(list(types)),),
+    ).fetchall()
+    found = defaultdict(list)
+    for name in dict.fromkeys(names):
+        asked = plain(name)
+        scores = {}
+        for id, form in forms:
+            score = _score(form, asked)
+            if score >= LIKELY and score > scores.get(id, 0):
+                scores[id] = score
+        for id in sorted(scores, key=lambda id: (-scores[id], id))[:MATCHES]:
+            found[id].append(name)
+    return dict(found)
+
+
+def _strings(name: str, values: object) -> list[str]:
+    if isinstance(values, str) or not isinstance(values, list) or any(
+        not isinstance(value, str) or not value.strip() for value in values
+    ):
+        raise ValueError(f"{name} must be a list of non-empty text")
+    return values
 
 
 def _match(pattern: str) -> str:
@@ -374,13 +400,6 @@ def jaro_winkler(a: str, b: str) -> float:
             break
         prefix += 1
     return jaro + prefix * 0.1 * (1 - jaro)
-
-
-def _record(row: tuple) -> dict:
-    record = dict(zip(FIELDS, row))
-    record["details"] = json.loads(record["details"])
-    record["amendments"] = json.loads(row[-1])
-    return record
 
 
 def _plain(text: str) -> str:

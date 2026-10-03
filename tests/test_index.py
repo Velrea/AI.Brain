@@ -5,12 +5,12 @@ import shutil
 import pytest
 
 import brain.index
-from brain.entries import Entries, UnknownEntities
-from brain.format import RecordError, encode
+from brain.entries import Entries
+from brain.format import encode
 from brain.read import PatternError, Reader
 from brain.write import Writer
 
-from conftest import entry, event_files, python, records_of
+from conftest import create, entry, event_files, python, records_of
 
 
 @pytest.fixture
@@ -19,47 +19,38 @@ def elsewhere(other_machine, brain_dir, tmp_path) -> Entries:
     return Entries(other_machine, Reader(brain_dir, tmp_path / "other machine data"))
 
 
-def journal(entries: Entries, description: str = "Started Zorblax", **fields) -> str:
-    return entries.write_journal(
-        event_date=fields.pop("event_date", "2026-01-01"), description=description,
-        body=fields.pop("body", "Two drops each morning."), **fields,
+def ticking(brain_dir, data_dir, tmp_path, reader) -> tuple[Entries, Entries]:
+    """Two machines whose every write takes a later second, since their ids order only by time."""
+    ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(99))
+    ours = Entries(Writer(brain_dir, data_dir, clock=lambda: next(ticks)), reader)
+    theirs = Entries(
+        Writer(brain_dir, tmp_path / "other machine data", clock=lambda: next(ticks)),
+        Reader(brain_dir, tmp_path / "other machine data"),
     )
+    return ours, theirs
 
 
-def test_a_revision_replaces_metadata_and_keeps_the_body_with_its_amendment(entries, reader, brain_dir):
-    entries.write_entity(slug="zorblax", name="Zorblax", kind="medication", body="A potion.")
-    original = journal(entries, body="Two drops of Zorblax.")
-    revision = entries.revise_journal(
-        original, description="Started Zorblax tincture", event_date="2026-01-03",
-        entities=["zorblax"], amendment="Correction: it was three drops, not two.",
-    )
+def revise(entries: Entries, entry_id: str, **fields) -> str:
+    return entries.write(type=fields.pop("type", "journal"), version=1, entry=entry_id, **fields)
+
+
+def test_a_revision_is_one_entry_found_by_either_text_and_its_new_links(entries, reader, brain_dir):
+    create(entries, "zorblax", type="entity")
+    original = create(entries, "started-zorblax", body="Two drops of Zorblax.")
+    revision = revise(entries, original, links=["zorblax"], body="Correction: it was three drops, not two.")
 
     [record] = reader.read([original])
-    assert (record["id"], record["description"], record["event_date"]) == (
-        original, "Started Zorblax tincture", "2026-01-03",
-    )
-    assert record["body"] == "Two drops of Zorblax."
-    assert record["details"] == {"entities": ["zorblax"]}
-    [amendment] = record["amendments"]
-    assert (amendment["id"], amendment["body"]) == (revision, "Correction: it was three drops, not two.")
     # The revision's own id reads the entry it belongs to.
     assert reader.read([revision]) == [record]
-    # Found by either text, or by the entities it now names, as one entry.
     assert [hit.id for hit in reader.search("three drops")] == [original]
     assert [hit.id for hit in reader.search("two drops")] == [original]
-    assert [hit.id for hit in reader.search(entities=["zorblax"], types=["journal"])] == [original]
+    assert [hit.id for hit in reader.search(slugs=["zorblax"], types=["journal"])] == [original]
     assert reader.search("three drops")[0].snippet == "Correction: it was three drops, not two."
-    # On disk: an original names itself, and a revision names the original.
-    on_disk = {r["id"]: r for path in event_files(brain_dir) for r in records_of(path)}
-    assert on_disk[original]["entry"] == original
-    assert on_disk[revision]["entry"] == original
-    assert on_disk[revision]["details"] == {"revises": ["description", "event_date", "entities"],
-                                           "entities": ["zorblax"]}
 
 
-def test_a_revision_of_metadata_alone_adds_no_amendment(entries, reader):
-    original = journal(entries)
-    entries.revise_journal(original, event_date="2026-01-02")
+def test_a_revision_of_fields_alone_adds_no_amendment(entries, reader):
+    original = create(entries, "started-zorblax", description="Started Zorblax")
+    revise(entries, original, event_date="2026-01-02")
 
     [record] = reader.read([original])
     assert (record["description"], record["event_date"], record["amendments"]) == (
@@ -67,38 +58,19 @@ def test_a_revision_of_metadata_alone_adds_no_amendment(entries, reader):
     )
 
 
-def test_a_revision_that_changes_nothing_or_names_no_journal_entry_is_refused(entries, brain_dir):
-    original = journal(entries)
-    snapshot = entries.write_snapshot(scope="potions", description="Potions", body="Zorblax.")
-    before = sum(len(records_of(path)) for path in event_files(brain_dir))
-
-    with pytest.raises(RecordError, match="must change"):
-        entries.revise_journal(original)
-    with pytest.raises(RecordError, match="non-empty"):
-        entries.revise_journal(original, amendment=" ")
-    with pytest.raises(RecordError, match="no journal entry"):
-        entries.revise_journal(snapshot, description="Not a journal")
-    with pytest.raises(RecordError, match="no journal entry"):
-        entries.revise_journal("0199a8c4-0000-7000-8000-000000000000", description="Missing")
-    with pytest.raises(UnknownEntities):
-        entries.revise_journal(original, entities=["glimmerol"])
-    assert sum(len(records_of(path)) for path in event_files(brain_dir)) == before
-
-
 def test_a_revision_arriving_late_is_applied_on_the_next_read(entries, elsewhere, reader):
-    original = journal(entries)
+    original = create(entries, "started-zorblax", description="Started Zorblax")
     assert [hit.description for hit in reader.search()] == ["Started Zorblax"]
 
-    elsewhere.revise_journal(original, description="Started Zorblax, late")
+    revise(elsewhere, original, description="Started Zorblax, late")
 
     assert [hit.description for hit in reader.search()] == ["Started Zorblax, late"]
 
 
 def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere, reader, brain_dir, tmp_path):
-    original = journal(entries)
-    elsewhere.revise_journal(original, description="Revised", amendment="Three drops.")
-    [ours] = [path for path in event_files(brain_dir) if original in path.read_text("utf-8")
-              and '"revises"' not in path.read_text("utf-8")]
+    original = create(entries, "started-zorblax")
+    revise(elsewhere, original, description="Revised", body="Three drops.")
+    [ours] = [path for path in event_files(brain_dir) if '"revises":[]' in path.read_text("utf-8")]
     held = tmp_path / "held back"
     shutil.move(ours, held)
 
@@ -111,25 +83,23 @@ def test_a_revision_arriving_before_its_original_waits_for_it(entries, elsewhere
     assert (record["description"], [a["body"] for a in record["amendments"]]) == ("Revised", ["Three drops."])
 
 
-def test_two_machines_revising_different_fields_both_hold(brain_dir, data_dir, tmp_path, reader):
-    # Two machines' ids order only by time, so each write takes a later millisecond.
-    ticks = iter(dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=n) for n in range(9))
-    entries = Entries(Writer(brain_dir, data_dir, clock=lambda: next(ticks)), reader)
-    elsewhere = Entries(
-        Writer(brain_dir, tmp_path / "other machine data", clock=lambda: next(ticks)),
-        Reader(brain_dir, tmp_path / "other machine data"),
-    )
-    original = journal(entries)
-    entries.revise_journal(original, description="Ours")
-    elsewhere.revise_journal(original, event_date="2026-02-02", amendment="Theirs.")
+def test_two_machines_revising_different_fields_and_adding_names_both_hold(brain_dir, data_dir, tmp_path, reader):
+    entries, elsewhere = ticking(brain_dir, data_dir, tmp_path, reader)
+    original = create(entries, "zorblax", type="entity", details={"kind": "potion"})
+    revise(entries, original, type="entity", description="Ours", aliases=["ZB"])
+    revise(elsewhere, original, type="entity", event_date="2026-02-02", aliases=["the green drops"],
+           details={"kind": "medication"}, body="Theirs.")
     # The newest revision of a field wins.
-    entries.revise_journal(original, amendment="Ours again.")
+    revise(entries, original, type="entity", body="Ours again.")
 
     [record] = reader.read([original])
-    assert (record["description"], record["event_date"]) == ("Ours", "2026-02-02")
+    assert (record["description"], record["event_date"], record["details"]) == (
+        "Ours", "2026-02-02", {"kind": "medication"},
+    )
+    assert record["aliases"] == ["ZB", "the green drops"]
     assert [a["body"] for a in record["amendments"]] == ["Theirs.", "Ours again."]
 
-    entries.revise_journal(original, description="Ours, newest")
+    revise(entries, original, type="entity", description="Ours, newest")
     assert reader.read([original])[0]["description"] == "Ours, newest"
 
 
@@ -137,12 +107,60 @@ def test_recorded_after_finds_an_entry_revised_since(brain_dir, data_dir, tmp_pa
     now = [dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)]
     reader = Reader(brain_dir, data_dir)
     entries = Entries(Writer(brain_dir, data_dir, clock=lambda: now[0]), reader)
-    original = journal(entries)
-    journal(entries, "Untouched")
+    original = create(entries, "started-zorblax")
+    create(entries, "untouched")
     now[0] = dt.datetime(2026, 9, 5, tzinfo=dt.timezone.utc)
-    entries.revise_journal(original, amendment="Stopped it.")
+    revise(entries, original, body="Stopped it.")
 
     assert [hit.id for hit in reader.search(recorded_after="2026-09-03")] == [original]
+
+
+def test_a_merge_makes_one_entry_of_two_and_one_set_of_what_links_to_either(entries, elsewhere, reader):
+    kept = create(entries, "medication", type="entity", description="Medication")
+    merged = create(entries, "meds", type="entity", description="Meds", body="Pills.")
+    create(entries, "started-zorblax", links=["meds"], event_date="2026-01-02")
+    create(entries, "refill", links=["medication"], event_date="2026-01-03")
+
+    revise(entries, kept, type="entity", slug="meds")
+    # An entry linking to the old slug that syncs in after the merge is covered too.
+    create(elsewhere, "doubled-it", links=["meds"], event_date="2026-01-04")
+
+    for slug in ("meds", "medication"):
+        assert [hit.description for hit in reader.search(slugs=[slug])] == [
+            "Medication", "started-zorblax", "refill", "doubled-it",
+        ]
+    # The entry merged away is a hit for nothing, and reads as merged into the one kept.
+    assert reader.search("pills") == []
+    [record] = reader.read([merged])
+    assert record["merged_into"] == kept
+    assert reader.read([kept])[0]["slugs"] == ["medication", "meds"]
+
+
+def test_a_merge_arriving_before_the_entry_it_merges_settles_the_same(entries, elsewhere, reader, brain_dir, tmp_path):
+    kept = create(entries, "medication", type="entity")
+    merged = create(elsewhere, "meds", type="entity")
+    create(elsewhere, "started-zorblax", links=["meds"], event_date="2026-01-02")
+    revise(entries, kept, type="entity", slug="meds")
+    [theirs] = [path for path in event_files(brain_dir) if b"started-zorblax" in path.read_bytes()]
+    held = tmp_path / "held back"
+    shutil.move(theirs, held)
+    assert reader.read([kept])[0]["slugs"] == ["medication", "meds"]
+
+    shutil.move(held, theirs)
+
+    assert reader.read([merged])[0]["merged_into"] == kept
+    assert [hit.description for hit in reader.search(slugs=["medication"])] == ["medication", "started-zorblax"]
+
+
+def test_two_machines_creating_one_slug_keep_both_entries(entries, other_machine, reader):
+    ours = create(entries, "dr-jekyll", type="entity", description="Dr. Jekyll")
+    # Written beneath Entries.write, as a machine that had not yet synced ours would.
+    theirs = other_machine.write_entry(**entry(type="entity", slugs=["dr-jekyll"],
+                                               description="Dr. Jekyll, the physician"))
+    linked = create(entries, "checkup", links=["dr-jekyll"])
+
+    assert {hit.id for hit in reader.search(slugs=["dr-jekyll"])} == {ours, theirs, linked}
+    assert [record["merged_into"] for record in reader.read([ours, theirs])] == [None, None]
 
 
 def test_a_complete_line_is_taken_in_only_once_its_newline_arrives(writer, reader, brain_dir):
@@ -200,20 +218,23 @@ def test_a_corrupt_index_is_rebuilt(writer, reader):
 
 
 def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(entries, elsewhere, reader, brain_dir, tmp_path):
-    entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["ZB"], body="A potion.")
-    first = journal(entries, entities=["zorblax"])
+    zorblax = create(entries, "zorblax", type="entity", aliases=["ZB"])
+    first = create(entries, "started-zorblax", links=["zorblax"])
     reader.search()
-    elsewhere.write_entity(slug="zorblax", name="Zorblax", kind="potion", aliases=["green"], body="Green.")
-    second = journal(elsewhere, "Doubled the dose", event_date="2026-02-01")
+    revise(elsewhere, zorblax, type="entity", aliases=["green"])
+    second = create(elsewhere, "doubled-the-dose", event_date="2026-02-01")
+    meds = create(elsewhere, "meds", type="entity")
     reader.search()
-    entries.revise_journal(second, entities=["zorblax"], amendment="Four drops.")
-    elsewhere.revise_journal(first, description="Began Zorblax")
+    revise(entries, second, links=["zorblax", "meds"], body="Four drops.")
+    revise(elsewhere, first, description="Began Zorblax")
+    revise(entries, zorblax, type="entity", slug="meds")
 
     rebuilt = Reader(brain_dir, tmp_path / "fresh data")
-    for search in (dict(), dict(pattern="drops"), dict(entities=["zorblax"])):
+    searches = (dict(), dict(pattern="drops"), dict(slugs=["zorblax"]), dict(slugs=["meds"]),
+                dict(names=["zb", "green"], types=["entity"]))
+    for search in searches:
         assert reader.search(**search) == rebuilt.search(**search)
-    assert reader.read([first, second]) == rebuilt.read([first, second])
-    assert reader.resolve(["zb", "green"]) == rebuilt.resolve(["zb", "green"])
+    assert reader.read([first, second, zorblax, meds]) == rebuilt.read([first, second, zorblax, meds])
 
 
 CRASH_MIDWAY = """
@@ -252,10 +273,11 @@ brain_dir, data_dir, name, count = sys.argv[1], sys.argv[2], sys.argv[3], int(sy
 reader = Reader(brain_dir, data_dir)
 entries = Entries(Writer(brain_dir, data_dir), reader)
 for n in range(count):
-    id = entries.write_journal(event_date="2026-09-14", description=f"{name} {n}", body="Zorblax.")
+    id = entries.write(type="journal", version=1, slug=f"{name}-{n}", event_date="2026-09-14",
+                       description=f"{name} {n}", body="Zorblax.")
     assert [r["id"] for r in reader.read([id])] == [id]
     if n % 3 == 0:
-        entries.revise_journal(id, amendment=f"{name} {n} amended.")
+        entries.write(type="journal", version=1, entry=id, body=f"{name} {n} amended.")
     assert len(reader.search(f'"{name} {n}"')) >= 1
 """
 
@@ -291,13 +313,3 @@ def test_a_pattern_finds_words_phrases_prefixes_and_either_side_of_or(writer, re
     for pattern in ("", " - ", "-tea", "OR"):
         with pytest.raises(PatternError):
             reader.search(pattern)
-
-
-def test_an_entity_restated_is_one_hit_and_any_statement_reads_it(entries, reader):
-    first = entries.write_entity(slug="zorblax", name="Zorblax", kind="potion", body="A potion.")
-    newest = entries.write_entity(slug="zorblax", name="Zorblax tincture", kind="medication", body="Blue.")
-
-    [hit] = reader.search(entities=["zorblax"])
-    assert (hit.id, hit.description) == (newest, "Zorblax tincture")
-    [record] = reader.read([first])
-    assert (record["id"], record["body"], record["details"]["kind"]) == (newest, "Blue.", "medication")

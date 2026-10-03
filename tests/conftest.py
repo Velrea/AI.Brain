@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 import subprocess
@@ -12,17 +13,28 @@ from brain.write import Writer
 
 PLUGIN = Path(__file__).resolve().parent.parent / "plugin"
 
+_numbers = itertools.count()
+
 
 def entry(**overrides) -> dict:
-    """Arguments for Writer.write_entry."""
+    """Arguments for Writer.write_entry, under a slug of its own."""
     fields = {
         "type": "journal",
         "version": 1,
         "event_date": "2026-09-14",
         "description": "Oil change",
         "body": "## Service\nOil and filter changed.",
+        "slugs": [f"entry-{next(_numbers)}"],
     }
     return fields | overrides
+
+
+def create(entries: Entries, slug: str, **fields) -> str:
+    """Creates an entry through Entries.write, a journal entry unless told otherwise."""
+    return entries.write(**{
+        "type": "journal", "version": 1, "slug": slug, "event_date": "2026-01-01", "description": slug,
+        "body": "Recorded.", **fields,
+    })
 
 
 def event_files(brain_dir: Path) -> list[Path]:
