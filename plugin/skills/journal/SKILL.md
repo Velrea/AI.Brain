@@ -5,47 +5,52 @@ when_to_use: "The user asks to journal, record, note, or correct something, or m
 argument-hint: "[the event to record]"
 ---
 
-Record what happened so a reader who was not there can follow it months later.
+Record what happened so a reader months later can follow it.
 
-## Whether to record
+## When
 
-A request decides it. Unprompted, record what the user took part in and has already happened. Offer, and record on a yes, what they only observed, what has not happened yet, or what you found rather than were told. Never record the session's own work.
+- Asked: record.
+- Unprompted: record what the user took part in that has happened. Offer first for what they only observed, what is planned, or what you found.
+- Never record the session's own work.
 
-## The account
+## Before writing
 
-Ask follow-up questions until the account is complete. Ask rather than guess at anything unclear: an entry is permanent.
+- Ask follow-ups until the account is complete. Never guess a date, name, or figure.
+- Find every subject and the broad subject it falls under: one `search` by `names`, `types: ["entity"]`. Record missing subjects and new names through `entity`. Ask about an uncertain match.
+- Read the newest entry of the same kind; follow its layout.
 
-Find every subject: each person, thing, or topic that outlasts the event, and the broad subject it falls under, so a question about the whole subject finds it. Search for them all at once by `names`, with `types` of `entity`. Link to each match; record a subject with no match, or a new name for a match, through `entity`. Ask about an uncertain match rather than merging two things or splitting one. Link as well to an earlier entry this one follows on from, and to the document entries of any documents it concerns.
+## Write
 
-Read the newest entry like this one and follow its layout.
+```
+type: journal
+version: 1
+slug: <YYYY-MM-DD>-<a few words>
+event_date: <the day it happened>
+description: <one line: what happened and what about it matters>
+body: <what happened, every value as given, everyone by name; decisions, commitments with owner and date, open questions>
+links: <subjects, document entries, the entry it follows on from>
+source: <how it arrived, one word>
+```
 
-## The entry
-
-Record it with `write`:
-
-- `type`: `journal`
-- `version`: `1`
-- `slug`: `<YYYY-MM-DD>-<a few words naming the event>`
-- `event_date`: `<YYYY-MM-DD, the day it happened>`
-- `description`: `<one line a reader can triage from without opening the entry: what happened and what about it matters, never only the kind of event>`
-- `body`: `<Markdown: what happened, concretely, with every value exactly as given and everyone by name; what was decided, who committed to what by when, and what was left open>`
-- `links`: `<the slugs of its subjects, documents, and any entry it follows on from>`
-- `source`: `<how it arrived, in a word>`
-
-One event per entry. Keep every link or reference the account gives to where more of it lives. Never write a secret in full; keep only enough of it to tell it apart. A slug already taken gets more words.
+- One event per entry.
+- Keep every link or reference to more of the account.
+- Never write a secret in full.
+- Slug taken: add words.
 
 ## Documents
 
-`document` files each document and records it as an entry of its own, then hands them here. Write the entry recording what was captured: what the documents say, summarized, and what surrounds them, linking to each document entry's slug. The documents are the account, so ask only about what they leave unclear, and date the entry by the event they record, or else the day they were captured. Documents about one event share one entry.
+From `document`: one entry summarizing what was captured and what surrounds it, linking each document entry. Ask only what the documents leave unclear. Date it by the event, else the capture day. One entry per event.
 
 ## Corrections
 
-Read the account against the entry it concerns. What the entry got wrong is a correction, a `write` revising that entry:
+What the entry got wrong: revise it.
 
-- `type`: `journal`
-- `version`: `1`
-- `entry`: `<the id of the entry it corrects>`
-- `body`: `<an amendment saying what was wrong and what is right>`
-- `description`, `event_date`, `links`: `<only those that change, each replacing the entry's>`
+```
+type: journal
+version: 1
+entry: <its id>
+body: <what was wrong, what is right>
+description, event_date, links: <only what changes>
+```
 
-Anything the entry did not hold is new: a new entry on its own date, linking to the one it follows on from. An account with both gets both.
+What the entry never held: a new entry linking to it. Both: both.
