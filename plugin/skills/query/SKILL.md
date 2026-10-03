@@ -1,7 +1,7 @@
 ---
 name: query
-description: "Answers a question about the user's life from the Brain."
-when_to_use: "The user asks about their own past or present, what happened, or how something in their life stands now, or asks to look something up in the Brain."
+description: "Answers a question from what the Brain recorded."
+when_to_use: "The user asks about something they may have recorded: what happened, what was said or decided, or how something stands now; or asks to look something up in the Brain."
 argument-hint: "<the question to answer>"
 ---
 

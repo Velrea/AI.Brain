@@ -1,6 +1,6 @@
 {
   "name": "brain",
-  "description": "A personal knowledge base: records what happens in the user's life and answers questions about it.",
+  "description": "A journal Claude keeps: records what you tell it, files your documents, and answers questions about them later.",
   "author": {
     "name": "Velrea"
   },

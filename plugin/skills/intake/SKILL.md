@@ -13,7 +13,7 @@ Read the whole document first. If you cannot, ask the user what it is.
 
 ## Choose its place
 
-The documents folder is for the user to browse by hand. Browse it with `list_documents`, and file beside documents like this one. Where there are none, nest by life area, then the specific thing within it, then the kind of document, using only the levels that help. Folder names are lowercase words joined by hyphens. A file is named `YYYY-MM-DD-<what-it-is>.<ext>`, dated by the event it records, or `<what-it-is>.<ext>` when it records none. Where the folders follow a pattern of their own, follow it.
+The documents folder is for the user to browse by hand. Browse it with `list_documents`, and file beside documents like this one. Where there are none, nest by area, then the specific thing within it, then the kind of document, using only the levels that help. Folder names are lowercase words joined by hyphens. A file is named `YYYY-MM-DD-<what-it-is>.<ext>`, dated by the event it records, or `<what-it-is>.<ext>` when it records none. Where the folders follow a pattern of their own, follow it.
 
 File without asking where documents like it are filed. Otherwise offer two or three paths, your recommendation first, once per batch.
 

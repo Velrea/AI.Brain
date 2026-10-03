@@ -7,7 +7,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry the judgment the tools
 | Skill | Does |
 | --- | --- |
 | [`journal`](../plugin/skills/journal/SKILL.md) | records an event as a journal entry, or corrects one, and decides unprompted whether an event deserves one |
-| [`query`](../plugin/skills/query/SKILL.md) | answers a question about the user's life by searching, reading, and folding the entries that bear on it |
+| [`query`](../plugin/skills/query/SKILL.md) | answers a question from what was recorded, by searching, reading, and folding the entries that bear on it |
 | [`intake`](../plugin/skills/intake/SKILL.md) | files a document into the Brain's documents and writes the one journal entry that carries its contents |
 
 ## Journal
@@ -47,7 +47,7 @@ flowchart LR
 ```
 
 - **The document moves, not a copy.** One copy remains, and it is the filed one, so a folder of documents to deal with empties as they are handled.
-- **The documents folder is organized for a person.** The user browses it by hand, so it grows in up to three levels a person would look through: a life area, the specific thing, and the kind of document, such as `assets/blue-hatchback/service/`. A file is named for the date of the event it records, then what it is, so a folder lists by when things happened. Where the folders in use follow a pattern of their own, the skill follows that instead.
+- **The documents folder is organized for a person.** The user browses it by hand, so it grows in up to three levels a person would look through: an area, the specific thing within it, and the kind of document, such as `assets/blue-hatchback/service/`. A file is named for the date of the event it records, then what it is, so a folder lists by when things happened. Where the folders in use follow a pattern of their own, the skill follows that instead.
 - **It asks only where nothing is like it.** A document whose like is already filed goes beside it without asking; otherwise the user picks from two or three paths, so placement stays the user's call without a question for every document.
 - **A document is filed once.** `store_document` refuses contents an entry already names, so a duplicate is caught by the tool, not by the skill.
 - **The entry is the journal skill's.** Intake files; `journal` writes the entry, so an entry about a document reads like any other, and documents about one event share an entry naming each.

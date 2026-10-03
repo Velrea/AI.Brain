@@ -32,9 +32,9 @@ from server.folders import FolderError, brain_dir, data_dir
 log = logging.getLogger("brain")
 
 INSTRUCTIONS = """\
-The Brain is the user's own record of their life: an append-only log of journal \
-entries, the entities they are about, snapshots of folded answers, and filed \
-documents. Nothing is ever edited; a correction is a revision. Find with `search`, \
+The Brain is the user's journal of whatever they choose to record: an append-only \
+log of journal entries, the entities they are about, snapshots of folded answers, \
+and filed documents. Nothing is ever edited; a correction is a revision. Find with `search`, \
 then `read` only the ids you pick. Resolve names to entities with `resolve` before \
 writing or searching by them."""
 

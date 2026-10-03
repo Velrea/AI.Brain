@@ -1,42 +1,42 @@
 # AI.Brain
 
-**Your life, on the record.** Tell Claude what happened. Hand it the paperwork. Ask it anything later.
+**Remember everything you choose to.** Tell Claude what happened. Hand it the documents. Ask it anything later.
 
-You already tell Claude about your day: the mechanic's verdict, the new prescription, the call with the landlord. Then the conversation ends, and it is gone. AI.Brain gives Claude somewhere to keep it. Claude writes down what happens in your life, files the documents that go with it, and answers questions about it months or years later, from what was actually recorded rather than from what anyone remembers.
+You already tell Claude what is going on: the decision from this morning's meeting, the vendor's new quote, what the mechanic said. Then the conversation ends, and it is gone. AI.Brain gives Claude a journal to keep it in. Claude writes down whatever you want to remember, at work or at home, files the documents that go with it, and answers questions about it months or years later, from what was actually recorded rather than from what anyone remembers.
 
 ## A year with a Brain
 
-**March.** Back from the shop, you tell Claude: *"Oil change on the blue hatchback. They said the rear brakes are getting thin."* Claude asks the mileage and the shop's name, then records it.
+**March.** After a meeting you tell Claude: *"We picked the Zephyr design for the billing service. Sherlock owns the migration plan, due April 15. Still open: who signs off on the cutover."* Claude asks who else was there, then records the decision, the action item, and the open question.
 
-**March, a minute later.** *"File this,"* with the invoice attached. Claude reads it, files it at `assets/blue-hatchback/service/2026-03-14-oil-change-invoice.pdf` beside the car's other service records, and writes down what the invoice says, so its line items can be found without opening it.
+**March, a minute later.** *"File this,"* with the signed vendor contract attached. Claude reads it, files it beside your other contracts with that vendor, and writes down what it says, so its renewal terms can be found without opening it.
 
-**June.** *"Dr. Jekyll doubled my Zorblax to four drops."* Recorded, under both the doctor and the medication.
+**June.** Back from the shop: *"Oil change on the blue hatchback. They said the rear brakes are getting thin."* Recorded, under the car.
 
-**July.** *"Actually, it was three drops, not four."* The mistake is corrected, and the original account is kept, so you can always see what was said and what was fixed.
+**July.** *"Actually, the migration plan is due the 22nd, not the 15th."* The mistake is corrected, and the original account is kept, so you can always see what was said and what was fixed.
 
 **August.** Planning your week with Claude, you mention the landlord agreed to fix the fence by Friday. Claude asks whether to record it, and does when you say yes.
 
-**September.** *"When were the brakes last looked at, and what did they say?"* Claude finds the March visit and the invoice, and answers in two sentences, offering the rest if you want it.
+**September.** *"What did we agree with the vendor about renewal?"* Claude finds the contract's entry and the meeting where it came up, and answers in two sentences, offering the rest if you want it.
 
-**November.** *"What medications am I on now?"* Claude reads everything recorded about your medications, works out where each one stands today, and offers to save the answer, so asking again next month is instant.
+**November.** *"What's still open on the billing migration?"* Claude reads everything recorded about it, works out what is done and what is not, and offers to save the answer, so asking again next month is instant.
 
 ## What it does
 
 - **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it, and offers to record something worth keeping that you mention in passing.
-- **Files your documents.** Hand over an invoice, a lab report, or a folder of scans. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
-- **Answers from the record.** What happened, how things stand now, what changed, and when. Answers are short, and the detail is there when you ask for it.
+- **Files your documents.** Hand over a contract, a spec, an invoice, or a folder of scans. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
+- **Answers from the record.** What happened, what was decided, how things stand now, what changed, and when. Answers are short, and the detail is there when you ask for it.
 - **Keeps corrections honest.** Nothing is ever edited away. A correction is recorded beside the original, and every later answer reflects it.
-- **Stays yours.** Everything lives in a folder you choose, as plain files. Put it in Google Drive or Dropbox, and every machine you use shares one Brain.
+- **Stays yours.** Everything lives in a folder you choose, as plain files. Put it in a synced folder, and every machine you use shares one Brain.
 
 ## How you use it
 
 You talk to Claude the way you would anyway. Some things to try:
 
-- *"Journal this: the vet says the dragon's scales are clearing up."*
+- *"Journal this: the design review moved to Thursday, and we're dropping the export feature from this release."*
 - *"File this document."* or *"File everything in my Downloads/scans folder."*
-- *"What did the vet say about the dragon's scales last spring?"*
-- *"How has my Zorblax dose changed this year?"*
-- *"That's wrong, the appointment was on the 12th."*
+- *"What did we decide about the export feature, and why?"*
+- *"What action items do I still owe from last week's meetings?"*
+- *"That's wrong, the review was on the 12th."*
 
 When Claude files a document somewhere new, it suggests where it should go and lets you choose. Once something like it has been filed, the next one goes beside it without asking.
 

@@ -1,7 +1,7 @@
 ---
 name: journal
-description: "Records an event in the user's life as a journal entry, or corrects one."
-when_to_use: "The user asks to journal, record, note, or correct something about their life, or mentions in passing something in their life that has happened or is planned."
+description: "Records what happened as a journal entry, or corrects one."
+when_to_use: "The user asks to journal, record, note, or correct something, or mentions in passing something that has happened or is planned that they would want to recall later."
 argument-hint: "[the event to record]"
 ---
 
@@ -23,7 +23,7 @@ Read the newest entry like this one and follow its layout.
 
 - Date it the day it happened, one event per entry.
 - In the body: who said or did what, with exact numbers, dates, amounts, and names; people by name, not pronoun; decisions, action items with who and by when, and open questions.
-- Only the last digits of an account, card, or government number.
+- Only the last digits of any account or identification number.
 
 ## A document
 
