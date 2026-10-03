@@ -13,7 +13,7 @@ A request decides it. Unprompted, record what the user took part in and has alre
 
 ## The account
 
-Ask follow-up questions until the account is complete. Ask rather than guess an unclear date, name, figure, or outcome: an entry is permanent.
+Ask follow-up questions until the account is complete. Ask rather than guess at anything unclear: an entry is permanent.
 
 Resolve every subject: each person, thing, or topic that outlasts the event, and the broad subject it falls under, so a question about the whole subject finds it. Add a new name for a match as an alias with `write_entity`. Ask about an uncertain match rather than merging two things or splitting one.
 
@@ -22,8 +22,8 @@ Read the newest entry like this one and follow its layout.
 ## The entry
 
 - Date it the day it happened, one event per entry.
-- In the body: who said or did what, with exact numbers, dates, amounts, and names; people by name, not pronoun; decisions, action items with who and by when, and open questions.
-- Only the last digits of any account or identification number.
+- In the body: what happened, concretely, with every value exactly as given and everyone by name. Mark what was decided, who committed to what by when, and what was left open.
+- Never write a secret in full; keep only enough of it to tell it apart.
 
 ## A document
 
