@@ -1,17 +1,19 @@
-"""The document skill's file work: hashing a document, filing it into the Brain
-folder's `documents/`, and listing a folder of it. Standard library only.
+"""The document skill's file work: filing a document into the Brain folder's
+`documents/`, and listing a folder of it. Standard library only, with the core
+module beside it in the plugin.
 
 A filed document is a file at a path inside `documents/`, with its sha256,
 copied or moved there, and recorded afterwards as an entry of type `document`
 naming both in its details. A path, once filed, keeps its contents: filing the
 same contents there again returns it as it is, and filing others there is
 refused, so a pointer to a document never comes to point at something else.
+Contents a document entry already names are refused wherever they would be
+filed, found through the core module's search, so a document is filed once.
 
 Each command prints one JSON object; a failure prints its message to stderr
 and exits 1.
 
-    documents.py hash <file>
-    documents.py store --brain <folder> <file> <path> [--move]
+    documents.py store --brain <folder> --data <folder> <file> <path> [--move]
     documents.py list --brain <folder> [<path>]
 """
 
@@ -25,6 +27,16 @@ import shutil
 import sys
 import uuid
 from pathlib import Path
+
+# The plugin's own folder, so the core module and the server's folders are importable.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from brain.index import IndexUnavailable  # noqa: E402
+from brain.read import Reader  # noqa: E402
+from server.folders import FolderError, data_dir  # noqa: E402
+
+DOCUMENT = "document"
+"""The type of the entry that records a filed document."""
 
 DOCUMENTS_DIR = "documents"
 """The folder, beside `events/` in the Brain folder, that holds the filed documents."""
@@ -40,14 +52,18 @@ class DocumentError(ValueError):
 
 
 class Documents:
-    """Files documents into one Brain folder's `documents/`, and lists them."""
+    """Files documents into one Brain folder's `documents/`, and lists them.
 
-    def __init__(self, brain_dir: Path):
+    Given a `reader`, filing refuses contents a document entry already names.
+    """
+
+    def __init__(self, brain_dir: Path, reader: Reader | None = None):
         brain_dir = Path(brain_dir)
         if not brain_dir.is_dir():
             # A sync folder that is not mounted must not quietly become a new, empty Brain.
             raise DocumentError(f"the Brain folder {str(brain_dir)!r} does not exist: is its sync folder available?")
         self.root = brain_dir.resolve() / DOCUMENTS_DIR
+        self.reader = reader
 
     def store(self, source: Path, path: str, *, move: bool = False) -> dict:
         """Copies the file at `source` to `path` inside `documents/`, removing
@@ -56,10 +72,11 @@ class Documents:
 
         `path` is relative, with `/` between folders, which are created as
         needed. Raises DocumentError for a source that is not a file, a path
-        that is not one, a path that already holds other contents, and a move
-        of a document already filed, which would leave the entries naming it
-        pointing at nothing. A source that cannot be removed raises
-        DocumentError too, after the document is filed, with its path and sha256.
+        that is not one, a path that already holds other contents, contents a
+        document entry already names, and a move of a document already filed,
+        which would leave the entries naming it pointing at nothing. A source
+        that cannot be removed raises DocumentError too, after the document is
+        filed, with its path and sha256.
         """
         source = Path(source)
         if not source.is_file():
@@ -70,6 +87,8 @@ class Documents:
                 f"{str(source)!r} is already filed in the Brain's documents, and a filed document is never"
                 f" moved: entries point at it where it is"
             )
+        if self.reader is not None:
+            self._unrecorded(sha256(source))
         target.parent.mkdir(parents=True, exist_ok=True)
         # Copied beside the target and renamed into place, so a sync service
         # never carries a part-written document.
@@ -119,6 +138,19 @@ class Documents:
             elif child.is_file():
                 documents.append(child.name)
         return {"folders": folders, "documents": documents}
+
+    def _unrecorded(self, digest: str) -> None:
+        """Raises DocumentError when a document entry already names these contents."""
+        hits = self.reader.search(types=[DOCUMENT], details={"sha256": digest})
+        if not hits:
+            return
+        records = self.reader.read([hit.id for hit in hits])
+        paths = sorted({record["details"].get("path", "?") for record in records})
+        named = "; ".join(f"{record['id']} ({record['description']})" for record in records)
+        raise DocumentError(
+            f"these contents are already filed at {', '.join(map(repr, paths))}, recorded by {named}:"
+            f" nothing was filed, and the original is where it was"
+        )
 
 
 def sha256(path: Path) -> str:
@@ -175,10 +207,9 @@ def _count(folder: Path) -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="documents.py")
     commands = parser.add_subparsers(dest="command", required=True)
-    hashing = commands.add_parser("hash")
-    hashing.add_argument("file", type=Path)
     storing = commands.add_parser("store")
     storing.add_argument("--brain", type=Path, required=True)
+    storing.add_argument("--data", default="")
     storing.add_argument("file", type=Path)
     storing.add_argument("path")
     storing.add_argument("--move", action="store_true")
@@ -187,15 +218,14 @@ def main(argv: list[str]) -> int:
     listing.add_argument("path", nargs="?", default="")
     args = parser.parse_args(argv)
     try:
-        if args.command == "hash":
-            if not args.file.is_file():
-                raise DocumentError(f"no file is at {str(args.file)!r}")
-            result = {"sha256": sha256(args.file)}
-        elif args.command == "store":
-            result = Documents(args.brain).store(args.file, args.path, move=args.move)
+        if args.command == "store":
+            # The same plugin data folder, and so the same index, the server reads.
+            data, _ = data_dir(args.brain.resolve(), {"BRAIN_DATA_DIR": args.data})
+            documents = Documents(args.brain, Reader(args.brain, data))
+            result = documents.store(args.file, args.path, move=args.move)
         else:
             result = Documents(args.brain).browse(args.path)
-    except (DocumentError, OSError) as error:
+    except (DocumentError, FolderError, IndexUnavailable, OSError) as error:
         print(error, file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False))

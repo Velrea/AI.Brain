@@ -17,17 +17,12 @@ This skill's file work is done by its script, run through the plugin's launcher 
 
 From PowerShell or cmd, run `scripts/brain.cmd` beside it instead. Each command prints one JSON object, or a message saying what went wrong.
 
-- `hash "<file>"`: the file's `sha256`.
 - `list --brain "${user_config.brain_folder}" "<folder>"`: one folder of `documents/`, empty for the top: its folders with how many documents each holds, and its documents.
-- `store --brain "${user_config.brain_folder}" "<file>" "<path>" --move`: files the file at that path inside `documents/`, removes the original once it is filed, and prints the `path` and `sha256`. A path that already holds other contents is refused; a file already in `documents/` is never moved.
+- `store --brain "${user_config.brain_folder}" --data "${CLAUDE_PLUGIN_DATA}" "<file>" "<path>" --move`: files the file at that path inside `documents/`, removes the original once it is filed, and prints the `path` and `sha256`. Contents a document entry already names are refused, with where they are filed, and so is a path that already holds other contents; a file already in `documents/` is never moved.
 
 ## Read it
 
 Read the whole document first. If you cannot, ask the user what it is.
-
-## Filed already?
-
-Hash it, and search for an entry with `types` of `document` and `details` of `{"sha256": "<its sha256>"}`. If one is found, skip it, and tell the user where it is filed.
 
 ## Choose its place
 
@@ -37,7 +32,7 @@ File without asking where documents like it are filed. Otherwise offer two or th
 
 ## File and record it
 
-File it with `store`. If the original could not be removed, carry on with the path and `sha256` the message gives, and tell the user.
+File it with `store`. Refused as already filed: skip it, and tell the user where it is. If the original could not be removed, carry on with the path and `sha256` the message gives, and tell the user.
 
 Find its subjects by `names`, with `types` of `entity`, as `journal` does, then record it with `write`:
 

@@ -4,7 +4,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 **A skill defines its type.** It gives `write` the type and version as fixed values, and leaves placeholders for the model to fill, so the shape of each type lives in one place. A skill someone writes for their own use defines a type of its own the same way, with no change to the server.
 
-**Work beyond entries is the skill's own.** A skill that needs more than writing and reading entries carries a script for it beside its `SKILL.md`, standard library only, and runs it through the plugin's launcher with `run`, so it reaches Python the same way the server does on every machine. Its text names the script by `${CLAUDE_SKILL_DIR}` and hands it the Brain folder by `${user_config.brain_folder}`, both of which the host fills in when the skill loads.
+**Work beyond entries is the skill's own.** A skill that needs more than writing and reading entries carries a script for it beside its `SKILL.md`, standard library only, and runs it through the plugin's launcher with `run`, so it reaches Python the same way the server does on every machine. The script can call the core module, which is standard library only too, to search what is recorded. The skill's text names the script by `${CLAUDE_SKILL_DIR}`, and hands it the Brain folder by `${user_config.brain_folder}` and the plugin data folder, where the index is, by `${CLAUDE_PLUGIN_DATA}`, all of which the host fills in when the skill loads.
 
 **Each skill teaches the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully.
 
@@ -54,17 +54,16 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 ## Document
 
-Handed a file, `document` reads it, checks it is not filed already, chooses where it belongs, files it with its script, and records it as a document entry carrying its contents. Once a batch is filed, `journal` writes the entry recording the capture, linking to each document entry. One handing-over can so become many entries: one per document, and one for what was captured.
+Handed a file, `document` reads it, chooses where it belongs, files it with its script, which refuses one filed already, and records it as a document entry carrying its contents. Once a batch is filed, `journal` writes the entry recording the capture, linking to each document entry. One handing-over can so become many entries: one per document, and one for what was captured.
 
 ```mermaid
 flowchart LR
-    read["Read the document"] --> hash["Hash it, and search<br/>for a document entry<br/>with that sha256"]
-    hash -- found --> skip["Skip it; the original<br/>stays where it is"]
-    hash -- "none" --> browse["Browse the documents<br/>from the top down"]
+    read["Read the document"] --> browse["Browse the documents<br/>from the top down"]
     browse --> fits{"A folder holds<br/>documents like it?"}
     fits -- yes --> file["store, moving it"]
     fits -- no --> ask["Offer two or three paths,<br/>the recommended first"]
     ask --> file
+    file -- "already recorded" --> skip["Skip it; the original<br/>stays where it is"]
     file --> write["Write its document entry"]
     write --> journal["journal records the capture,<br/>linking to each document"]
 ```
@@ -72,15 +71,16 @@ flowchart LR
 - **The document moves, not a copy.** One copy remains, and it is the filed one, so a folder of documents to deal with empties as they are handled.
 - **The documents folder is organized for a person.** The user browses it by hand, so it grows in up to three levels a person would look through: an area, the specific thing within it, and the kind of document, such as `assets/blue-hatchback/service/`. A file is named for the date of the event it records, then what it is, so a folder lists by when things happened. Where the folders in use follow a pattern of their own, the skill follows that instead.
 - **It asks only where nothing is like it.** A document whose like is already filed goes beside it without asking; otherwise the user picks from two or three paths, so placement stays the user's call without a question for every document.
-- **A document is filed once.** Before filing, the skill hashes it and searches for a document entry naming that `sha256`; one found means it is filed already, and it is skipped where it is.
+- **A document is filed once.** The script refuses contents a document entry already names, so a duplicate is caught by code, not by the skill's judgment.
 - **The document entry carries its contents**, less any boilerplate, and links to its subjects, with its `path` and `sha256` in its details, written after the file is filed, so a pointer never points at nothing. A search finds the entry and an answer folds it in, so the contents are in the record without opening the file; the file is there to go back to.
 - **A changed document revises its entry** with its new `sha256`, so the original's hash still says what the document was when it was recorded.
 - **A web page is never copied into the Brain.** The skill offers to journal what it says instead.
 
 ### The script
 
-The skill's file work is done by [`documents.py`](../plugin/skills/document/scripts/documents.py), which hashes a file, files it into the Brain folder's `documents/`, and lists one folder of it, each printing one JSON object.
+The skill's file work is done by [`documents.py`](../plugin/skills/document/scripts/documents.py), which files a document into the Brain folder's `documents/` and lists one folder of it, each printing one JSON object.
 
+- **Contents already recorded are refused.** Before filing, the script hashes the file and searches, through the core module and the same index the server reads, for a document entry naming that `sha256`; one found means the document is filed already, and the refusal says where and which entry records it, leaving the original where it was. Contents filed but not yet recorded, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
 - **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there is refused, so a pointer to a document never comes to point at something else.
 - **A filed document is never moved.** A move of a file already inside `documents/` is refused, since the entries naming it would point at nothing.
 - **An original that cannot be removed** is reported after the document is filed, with its path and `sha256`, so the entry can still name it.
