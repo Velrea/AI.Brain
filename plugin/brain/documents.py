@@ -49,9 +49,8 @@ class Documents:
         `source` once it is filed when `move`, and returns
         `{"path": path, "sha256": ...}`.
 
-        `path` is relative, with `/` between folders, such as
-        `assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf`. Its
-        folders are created as needed. Raises DocumentError for a source that
+        `path` is relative, with `/` between folders, which are created as
+        needed. Raises DocumentError for a source that
         is not a file, a path that is not one, a path that already holds other
         contents, contents an entry already names, and a move of a document
         already filed, which would leave the entries naming it pointing at
@@ -101,7 +100,7 @@ class Documents:
         the top when empty, as `{"folders": [{"name", "documents"}], "documents": [...]}`,
         each folder with how many documents it holds at any depth, in name order.
 
-        Names starting with a dot, such as a copy in progress, are left out.
+        Names starting with a dot, as a copy in progress is, are left out.
         Raises DocumentError for a folder that is not filed.
         """
         base = self.root.joinpath(*_parts(folder)) if folder else self.root

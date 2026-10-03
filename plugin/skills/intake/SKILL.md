@@ -1,51 +1,28 @@
 ---
 name: intake
-description: "Files a document into the Brain: finds where it belongs among the Brain's documents, moves it there, and writes the one journal entry that carries its contents."
-when_to_use: "A file or folder of files handed over to put into the Brain, file, archive, save, or record, or a document to be dealt with. A web address handed over the same way."
-argument-hint: "<file or folder to file> [what it is]"
+description: "Files a document into the Brain and records it."
+when_to_use: "The user hands over a file or a folder of files to file, save, archive, or put in the Brain."
+argument-hint: "<file or folder> [what it is]"
 ---
 
-You file a document into the Brain: it moves into the Brain's documents, and one journal entry records it and carries what it says. The entry is what a later search finds and a later answer draws on; the document is there to go back to.
-
-File only when the user asks. A document named in passing is not that request, and you never watch a folder or start filing on your own.
+File only when asked; never watch a folder.
 
 ## Read it
 
-Read the whole document before anything else, with whatever this host offers for its kind of file. You need its contents for the entry, and its date and subject to choose where it goes. If you cannot read it, ask the user what it is rather than guessing.
+Read the whole document first. If you cannot, ask the user what it is.
 
-## Choose where it goes
+## Choose its place
 
-The documents folder is organized for the user to browse by hand, so its structure must make sense to a person looking for something. Browse it with `list_documents`, from the top down, and fit the document beside documents like it.
+The documents folder is for the user to browse by hand. Browse it with `list_documents`, and file beside documents like this one. Where there are none, nest by life area, then the specific thing within it, then the kind of document, using only the levels that help. Folder names are lowercase words joined by hyphens. A file is named `YYYY-MM-DD-<what-it-is>.<ext>`, dated by the event it records, or `<what-it-is>.<ext>` when it records none. Where the folders follow a pattern of their own, follow it.
 
-The structure grows as documents arrive, in three levels where they help:
+File without asking where documents like it are filed. Otherwise offer two or three paths, your recommendation first, once per batch.
 
-1. **A life area**, such as `assets`, `employment`, `finance`, `health`, `identity`, `legal`, `pets`, `projects`, or `reference`.
-2. **The specific thing**, such as a vehicle (`assets/blue-hatchback`), a home (`assets/lakeside-cottage`), a provider (`health/providers/dr-jekyll`), an institution, an employer, a pet, or a year for what comes yearly (`finance/tax/2025`).
-3. **The kind of document**, such as `service`, `insurance`, `registration`, `purchase`, or `vet`.
+## File and record it
 
-Folders are lowercase words joined by hyphens. A file is named for the date of the event it records, then what it is, in the same style: `2026-09-14-oil-change-invoice.pdf`, with the visit's or the invoice's date, never the day it was filed. A document with no event of its own, such as a manual, keeps a plain descriptive name. Where the folders already in use follow a pattern of their own, follow it instead.
+Call `store_document` with `move: true`. Refused as already filed: skip it, and tell the user where it is. The original could not be removed: carry on with the path and `sha256` the error gives, and tell the user.
 
-When a folder already holds documents like this one, file it there without asking. Otherwise ask before filing: offer two or three paths, your recommendation first, and let the user give another. Ask once for a batch, not per document.
+Then record it through `journal`, naming it as `store_document` returned it. If that fails, record it again; never file it again.
 
-## File it
+A folder is filed one document at a time, then recorded through `journal`. A web page is never filed; offer to journal what it says, with its address.
 
-Call `store_document` with `move: true`, so one copy remains and it is the filed one.
-
-- **Refused as already filed:** an entry already names these contents. Skip this document, leave the original where it is, and tell the user where it was filed.
-- **Filed, but the original could not be removed:** the error gives the path and `sha256`. Name the document by them, carry on, and tell the user the original is still there.
-
-## Write the entry
-
-Record the document through the `journal` skill, as an entry about a filed document, naming it by what `store_document` returned. If writing the entry fails after the document is filed, write it again with what `store_document` returned; never file the document again.
-
-## A batch
-
-A folder handed over at once is filed one document at a time, each into its own place, then recorded through the `journal` skill, which gives documents about one event a single entry.
-
-## A web address
-
-A web page is never copied into the Brain. Offer to journal what it says instead, with its address in the body.
-
-## Tell the user
-
-Say where each document was filed, the description of the entry that records it, and any original still where it was.
+Tell the user where each document went, its entry's description, and any original left in place.

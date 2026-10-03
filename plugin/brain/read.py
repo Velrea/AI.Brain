@@ -262,7 +262,7 @@ class Reader:
 
 def _match(pattern: str) -> str:
     """A pattern as an FTS5 query. Every term is quoted, so no character of it
-    reaches FTS5's own syntax: `Dr. J` and `dr-jekyll` are searched as words."""
+    reaches FTS5's own syntax, and punctuation inside a term is searched as a word break."""
     groups, positive, negative = [], [], []
     for term in _TERM.finditer(pattern):
         if term[4] is not None:

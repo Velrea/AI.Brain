@@ -88,9 +88,8 @@ class Entries:
 
         `description`, `event_date`, and `entities` replace the entry's, and
         each one not given is left as it stands. The body is never replaced:
-        `amendment` is kept under it, such as "Correction: it was three drops,
-        not two.", so the account stays as it was given and the correction
-        travels with it. `entry` is the id of the original entry. Raises
+        `amendment` is kept under it, so the account stays as it was given
+        and the correction travels with it. `entry` is the id of the original entry. Raises
         RecordError when nothing is revised or `entry` is not a journal
         entry, and UnknownEntities as `write_journal` does.
         """
@@ -156,7 +155,7 @@ class Entries:
         """Records an entity: a person, thing, or topic entries are about. Returns its id.
 
         Entries name it by `slug`. `name` is what it is called, `kind` what
-        sort of thing it is, such as person or medication, and `aliases` the
+        sort of thing it is, and `aliases` the
         other names it goes by. Writing a slug already recorded restates
         that entity: its name, kind, and body become the newest statement's,
         and its aliases add to those already recorded.
@@ -183,7 +182,7 @@ def _one_line(name: str, value: object) -> None:
 
 def _slug(name: str, value: object) -> None:
     if not isinstance(value, str) or _SLUG.fullmatch(value) is None:
-        raise RecordError(f"{name} must be a slug, such as dr-jekyll: {value!r}")
+        raise RecordError(f"{name} must be a slug, lowercase letters and digits in words joined by hyphens: {value!r}")
 
 
 def _lines(name: str, values: object) -> list[str]:

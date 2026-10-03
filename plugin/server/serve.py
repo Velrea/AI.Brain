@@ -113,15 +113,15 @@ def build(brain: Path, data: Path) -> MCPServer:
         """Records a journal entry, an account of something that happened, and returns {"id": ...}.
 
         event_date: when it happened, a local date, YYYY-MM-DD.
-        description: one line a reader can triage from without opening the entry,
-          such as "Oil change at 48k, rear brakes flagged as worn".
+        description: one line a reader can triage from without opening the entry:
+          what happened and what about it matters, never only the kind of event.
         body: Markdown, the account itself, as complete as it was given.
         entities: slugs of the entities the entry is about, each one already
           recorded. Resolve each subject first; write an entity only when none
           matches. An unrecorded slug is refused and nothing is written.
         documents: the filed documents the entry is about, each {"path": ..., "sha256": ...}
           exactly as store_document returned it. File each document first.
-        source: how the information arrived, such as voice or email.
+        source: how the information arrived, in a word.
         """
         return {"id": entries.write_journal(
             event_date=event_date, description=description, body=body,
@@ -143,8 +143,8 @@ def build(brain: Path, data: Path) -> MCPServer:
         entry: the id of the original entry.
         description, event_date, entities: each given replaces the entry's; each
           left out stands. entities replaces the whole list, each slug recorded.
-        amendment: text kept under the entry's body, such as "Correction: it was
-          three drops, not two." The body itself is never replaced.
+        amendment: text kept under the entry's body, saying what was wrong and
+          what is right. The body itself is never replaced.
         A revision must change something or add an amendment.
         """
         return {"id": entries.revise_journal(
@@ -164,10 +164,10 @@ def build(brain: Path, data: Path) -> MCPServer:
     ) -> dict:
         """Records an entity, a person, thing, or topic entries are about, and returns {"id": ...}.
 
-        slug: how entries name it: lowercase words joined by hyphens, such as dr-jekyll.
-        name: what it is called, one line. kind: what sort of thing it is, such as
-          person or medication. body: Markdown, what it is. aliases: other names it
-          goes by, so `resolve` finds it by them.
+        slug: how entries name it: lowercase letters and digits, words joined by hyphens.
+        name: what it is called, one line. kind: what sort of thing it is, in a word.
+          body: Markdown, what it is. aliases: other names it goes by, so `resolve`
+          finds it by them.
         Writing a slug already recorded restates that entity: its name, kind, and
         body become these, and the aliases add to those it has. Resolve first, so
         a subject is recorded once.
@@ -182,8 +182,8 @@ def build(brain: Path, data: Path) -> MCPServer:
         """Records a folded answer so it need not be recomputed, and returns {"id": ...}.
         Write one only when the user agrees to it.
 
-        scope: the question's meaning, one line, put so paraphrases land on one
-          scope, such as "current medications".
+        scope: the question's meaning in a few words, put so paraphrases of the
+          question land on the same scope.
         description: one line summarizing the answer. body: Markdown, the answer.
         Its event date is today. To use one later, search for the latest with this
         scope, then for what was recorded or revised after it, reaching back a few
@@ -214,7 +214,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         entities: slugs; an entry naming any of them is a hit, and so is the
           entity. Given with pattern, an entry is a hit when either finds it, so
           pass the subjects' slugs plus words for wording they might miss.
-        types: such as journal, entity, snapshot. event_date_from, event_date_to:
+        types: any of journal, entity, snapshot. event_date_from, event_date_to:
           YYYY-MM-DD, inclusive. recorded_after: a UTC time or date; finds entries
           recorded or revised after it. details: a type's own fields, matched exactly.
         documents: sha256 hashes; only entries naming a filed document with one
@@ -269,8 +269,7 @@ def build(brain: Path, data: Path) -> MCPServer:
 
         source: the file to file, a path on this machine.
         path: where it is filed inside the Brain's documents, relative, with /
-          between folders, such as "assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf".
-          Browse with list_documents to fit it beside similar documents.
+          between folders. Browse with list_documents to fit it beside similar documents.
         move: true removes the source once the document is filed; false leaves
           it where it is. A document already in the Brain's documents is never moved.
         Filing the same contents at a path again returns it as it is; a path that
@@ -287,8 +286,7 @@ def build(brain: Path, data: Path) -> MCPServer:
         each folder its name and how many documents it holds at any depth, and
         each document its file name, in name order.
 
-        folder: relative, with / between folders, such as "assets/blue-hatchback";
-          empty for the top. Browse from the top down to find where similar
+        folder: relative, with / between folders; empty for the top. Browse from the top down to find where similar
           documents are filed.
         """
         return documents.browse(folder)

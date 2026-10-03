@@ -9,7 +9,7 @@
     "brain_folder": {
       "type": "directory",
       "title": "Brain folder",
-      "description": "The folder that holds your Brain: its records in events/ and its filed documents in documents/. Put it in a synced folder, such as Google Drive, and point every machine at the same one.",
+      "description": "The folder that holds your Brain: its records in events/ and its filed documents in documents/. Put it in a folder a sync service keeps, and point every machine at the same one.",
       "required": true
     }
   }
