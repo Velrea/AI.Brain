@@ -78,13 +78,13 @@ def test_two_machines_revising_different_fields_and_adding_names_both_hold(brain
     original = create(writer, "zorblax", type="entity", details={"kind": "potion"})
     revise(writer, original, type="entity", description="Ours", aliases=["ZB"])
     revise(other_machine, original, type="entity", event_date="2026-02-02", aliases=["the green drops"],
-           details={"kind": "medication"}, body="Theirs.")
+           details={"kind": "elixir"}, body="Theirs.")
     # The newest revision of a field wins.
     revise(writer, original, type="entity", body="Ours again.")
 
     [record] = reader.read([original])
     assert (record["description"], record["event_date"], record["details"]) == (
-        "Ours", "2026-02-02", {"kind": "medication"},
+        "Ours", "2026-02-02", {"kind": "elixir"},
     )
     assert record["aliases"] == ["ZB", "the green drops"]
     assert [a["body"] for a in record["amendments"]] == ["Theirs.", "Ours again."]
@@ -106,40 +106,40 @@ def test_recorded_after_finds_an_entry_revised_since(brain_dir, data_dir, tmp_pa
 
 
 def test_a_merge_makes_one_entry_of_two_and_one_set_of_what_links_to_either(writer, other_machine, reader):
-    kept = create(writer, "medication", type="entity", description="Medication")
-    merged = create(writer, "meds", type="entity", description="Meds", body="Pills.")
-    create(writer, "started-zorblax", links=["meds"], event_date="2026-01-02")
-    create(writer, "refill", links=["medication"], event_date="2026-01-03")
+    kept = create(writer, "blue-hatchback", type="entity", description="Blue hatchback")
+    merged = create(writer, "the-car", type="entity", description="The car", body="Keys by the door.")
+    create(writer, "oil-change", links=["the-car"], event_date="2026-01-02")
+    create(writer, "tyre-rotation", links=["blue-hatchback"], event_date="2026-01-03")
 
-    revise(writer, kept, type="entity", slug="meds")
+    revise(writer, kept, type="entity", slug="the-car")
     # An entry linking to the old slug that syncs in after the merge is covered too.
-    create(other_machine, "doubled-it", links=["meds"], event_date="2026-01-04")
+    create(other_machine, "brake-check", links=["the-car"], event_date="2026-01-04")
 
-    for slug in ("meds", "medication"):
+    for slug in ("the-car", "blue-hatchback"):
         assert [hit.description for hit in reader.search(slugs=[slug])] == [
-            "Medication", "started-zorblax", "refill", "doubled-it",
+            "Blue hatchback", "oil-change", "tyre-rotation", "brake-check",
         ]
     # The entry merged away is a hit for nothing, and reads as merged into the one kept.
-    assert reader.search("pills") == []
+    assert reader.search("keys") == []
     [record] = reader.read([merged])
     assert record["merged_into"] == kept
-    assert reader.read([kept])[0]["slugs"] == ["medication", "meds"]
+    assert reader.read([kept])[0]["slugs"] == ["blue-hatchback", "the-car"]
 
 
 def test_a_merge_arriving_before_the_entry_it_merges_settles_the_same(writer, other_machine, reader, brain_dir, tmp_path):
-    kept = create(writer, "medication", type="entity")
-    merged = create(other_machine, "meds", type="entity")
-    create(other_machine, "started-zorblax", links=["meds"], event_date="2026-01-02")
-    revise(writer, kept, type="entity", slug="meds")
-    [theirs] = [path for path in event_files(brain_dir) if b"started-zorblax" in path.read_bytes()]
+    kept = create(writer, "blue-hatchback", type="entity")
+    merged = create(other_machine, "the-car", type="entity")
+    create(other_machine, "oil-change", links=["the-car"], event_date="2026-01-02")
+    revise(writer, kept, type="entity", slug="the-car")
+    [theirs] = [path for path in event_files(brain_dir) if b"oil-change" in path.read_bytes()]
     held = tmp_path / "held back"
     shutil.move(theirs, held)
-    assert reader.read([kept])[0]["slugs"] == ["medication", "meds"]
+    assert reader.read([kept])[0]["slugs"] == ["blue-hatchback", "the-car"]
 
     shutil.move(held, theirs)
 
     assert reader.read([merged])[0]["merged_into"] == kept
-    assert [hit.description for hit in reader.search(slugs=["medication"])] == ["medication", "started-zorblax"]
+    assert [hit.description for hit in reader.search(slugs=["blue-hatchback"])] == ["blue-hatchback", "oil-change"]
 
 
 def test_two_machines_creating_one_slug_keep_both_entries(writer, other_machine, reader):
@@ -212,18 +212,18 @@ def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(writer, other_ma
     reader.search()
     revise(other_machine, zorblax, type="entity", aliases=["green"])
     second = create(other_machine, "doubled-the-dose", event_date="2026-02-01")
-    meds = create(other_machine, "meds", type="entity")
+    potion = create(other_machine, "the-potion", type="entity")
     reader.search()
-    revise(writer, second, links=["zorblax", "meds"], body="Four drops.")
+    revise(writer, second, links=["zorblax", "the-potion"], body="Four drops.")
     revise(other_machine, first, description="Began Zorblax")
-    revise(writer, zorblax, type="entity", slug="meds")
+    revise(writer, zorblax, type="entity", slug="the-potion")
 
     rebuilt = Reader(brain_dir, tmp_path / "fresh data")
-    searches = (dict(), dict(pattern="drops"), dict(slugs=["zorblax"]), dict(slugs=["meds"]),
+    searches = (dict(), dict(pattern="drops"), dict(slugs=["zorblax"]), dict(slugs=["the-potion"]),
                 dict(names=["zb", "green"], types=["entity"]))
     for search in searches:
         assert reader.search(**search) == rebuilt.search(**search)
-    assert reader.read([first, second, zorblax, meds]) == rebuilt.read([first, second, zorblax, meds])
+    assert reader.read([first, second, zorblax, potion]) == rebuilt.read([first, second, zorblax, potion])
 
 
 CRASH_MIDWAY = """

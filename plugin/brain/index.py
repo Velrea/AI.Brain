@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .format import REVISABLE, brain_key, events_dir, is_event_file
 
-VERSION = 2
+VERSION = 1
 """The index's own layout. A change names a new file, so sessions running two
 versions of the plugin never rebuild each other's index."""
 
