@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # The server's pinned packages: one grouped pull request a week, tested by CI before it merges.
+  - package-ecosystem: pip
+    directory: /plugin
+    schedule:
+      interval: weekly
+    groups:
+      server-packages:
+        patterns: ["*"]
+  # The actions the workflows use.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

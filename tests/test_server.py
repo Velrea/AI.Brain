@@ -23,7 +23,8 @@ def server(brain_dir, data_dir):
 
 def calls(server, *steps):
     """Runs each (tool, arguments) in turn, in one session, and returns each
-    result: the parsed JSON, or the error text of an error result."""
+    result: the parsed JSON, the text of a tool that returns text, or the error
+    text of an error result."""
 
     async def run():
         results = []
@@ -31,7 +32,7 @@ def calls(server, *steps):
             for name, arguments in steps:
                 result = await client.call_tool(name, arguments)
                 text = result.content[0].text
-                results.append(("error", text) if result.is_error else json.loads(text))
+                results.append(("error", text) if result.is_error else json.loads(text) if name != "read" else text)
         return results
 
     return asyncio.run(run())
@@ -64,7 +65,7 @@ def test_an_entry_about_an_entity_is_written_found_and_read(server):
     assert resolved["matches"]["the car"][0]["slug"] == "zorblax"
     assert [hit["id"] for hit in found["hits"]] == [journal["id"]]
     assert found["hits"][0]["description"] == "Oil change at 48k"
-    assert read == {"records": []}
+    assert read == "No record has any of those ids."
     assert entity["id"] != journal["id"]
 
 
@@ -78,11 +79,38 @@ def test_a_revision_is_read_back_with_its_amendment(server):
         ("read", {"ids": [journal["id"]]}),
     )
 
-    [record] = read["records"]
-    assert record["description"] == "Oil change and tyre rotation"
-    assert record["body"] == "Oil changed."
-    assert [a["body"] for a in record["amendments"]] == ["The tyres were rotated too."]
+    assert read.splitlines()[0] == "# Oil change and tyre rotation"
+    assert f"id: {journal['id']} | type: journal | event_date: 2026-09-14" in read.splitlines()[1]
+    body, amendments = read.split("\n\n## Amendments\n\n### ")
+    assert body.endswith("\n\nOil changed.")
+    assert amendments.splitlines()[1:] == ["The tyres were rotated too."]
     assert revision["id"] != journal["id"]
+
+
+def test_a_read_comes_back_as_markdown_with_the_body_on_real_lines(server):
+    entity, journal = calls(
+        server,
+        ("write_entity", {"slug": "zorblax", "name": "Zorblax", "kind": "vehicle", "body": "The hover car.",
+                          "aliases": ["the hover car"]}),
+        ("write_journal", {"event_date": "2026-09-14", "description": "Oil change at 48k",
+                           "body": "## Service\nOil and filter changed.\n\nBrakes worn.", "entities": ["zorblax"],
+                           "documents": [{"path": "car/invoice.pdf", "sha256": "a" * 64}], "source": "voice"}),
+    )
+    [read] = calls(server, ("read", {"ids": [entity["id"], journal["id"]]}))
+
+    # In event-date order: the entry's 2026-09-14 comes before the entity's today.
+    oil_change, zorblax = read.split("\n\n---\n\n")
+    assert zorblax.splitlines()[0] == "# Zorblax"
+    assert {"slug: zorblax", "kind: vehicle", "aliases: the hover car"} <= set(zorblax.splitlines())
+    assert oil_change.splitlines()[:5] == [
+        "# Oil change at 48k",
+        oil_change.splitlines()[1],
+        "entities: zorblax",
+        "document: car/invoice.pdf (sha256 " + "a" * 64 + ")",
+        "",
+    ]
+    assert "source: voice" in oil_change.splitlines()[1]
+    assert oil_change.endswith("## Service\nOil and filter changed.\n\nBrakes worn.")
 
 
 def test_a_failure_the_model_can_fix_is_an_error_result_with_how(server):
