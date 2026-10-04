@@ -17,7 +17,7 @@ File only when asked; never watch a folder.
 
 ## Each document
 
-1. Read it whole. If you can't, ask what it is. A file whose contents only point to content kept elsewhere is not the document: see below.
+1. Read it whole. If you can't, ask what it is. A pointer, a file whose contents only point to content kept elsewhere, is filed like any document: read that content through whatever this session can reach; if nothing can, ask what it holds.
 2. Place it. `list` from the top; file beside similar documents without asking. Otherwise nest area, thing, kind, using only the levels that help, and offer two or three paths, recommended first, once per batch. Follow any existing pattern. Folders are lowercase words joined by hyphens; files are `YYYY-MM-DD-<what-it-is>.<ext>` by event date, or `<what-it-is>.<ext>`.
 3. `store` it with `--move`. Already recorded: skip it and say where it is. Original not removed: carry on with the printed path and sha256, and say so.
 4. Find its subjects (`search` by `names`, `types: ["entity"]`), then write:
@@ -28,22 +28,18 @@ version: 1
 slug: <what it is; its date first if it records an event>
 event_date: <the event's date, else the date it bears>
 description: <one line: what it is and what about it matters>
-body: <its contents, less boilerplate>
+body: <its contents, less boilerplate; a pointer's, what its content says>
 links: <subjects>
-details: {"path": "<from store>", "sha256": "<from store>"}
+details: {"path": "<from store>", "sha256": "<from store>", "address": "<a pointer only: where its content lives>"}
 ```
 
 Write failed: write again; never file again.
 
 Then hand the batch to `journal`.
 
-## Content kept elsewhere
+## Web pages
 
-A web page, or a file whose contents only point to content kept elsewhere, is never filed.
-
-- Kept on this machine: what it points to is the document. File it without `--move`, and say the original stays where it is.
-- Kept anywhere else: read it through whatever this session can reach; if nothing can, ask what it holds. Hand what it says to `journal`, with `details: {"address": "<where it lives>"}`.
-- Leave a pointer file where it is, and say so.
+A web page has no file: never file it. Hand what it says to `journal`, with `details: {"address": "<its address>"}`.
 
 ## Documents already filed
 
@@ -57,4 +53,5 @@ The user may edit, move, add, or delete files in the Brain's documents by hand. 
 
 ## Also
 
+- A pointer whose content changed since it was recorded: revise its entry with a `body` saying what changed.
 - Report each document's path, its entry's description, and any original left in place.
