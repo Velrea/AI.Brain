@@ -15,7 +15,7 @@ Record what happened so a reader months later can follow it.
 
 ## Before writing
 
-- Never guess a date, name, or figure: ask only for one the account leaves out or leaves unclear. Otherwise write what was given, and ask for nothing more.
+- Ask only where a reader months later could not follow what happened: something the account depends on and leaves out or leaves unclear, never detail it could hold but does not need. Never guess a date, name, or figure. A complete account is written as given.
 - Find every subject and the broad subject it falls under: one `search` by `names`, `types: ["entity"]`. Record missing subjects and new names through `entity`. Ask about an uncertain match.
 - Read the newest entry on the same subject (`search` by its slug, `types: ["journal"]`, `newest_first`); follow its layout.
 
