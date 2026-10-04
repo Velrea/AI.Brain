@@ -4,8 +4,8 @@ It runs in the run's empty workspace, with `HOME` set to the run's own home,
 and gives the run what a configured machine has:
 
 - its own copy of the seeded Brain, in `brain/`;
-- the files the case hands over, in `inbox/`, and those a pointer among them
-  names, in `elsewhere/`;
+- the files the case hands over, in `inbox/`, and any other file it writes,
+  replaces, or removes, the seeded Brain's documents among them;
 - the Brain folder setting, which an eval run otherwise leaves empty, so the
   server would not start and the skills would name no folder;
 - the server's Python environment, built once by the launcher and copied
@@ -35,9 +35,13 @@ def main(case_name: str, venv: Path) -> int:
     for name, data in case.inbox.items():
         (work / "inbox").mkdir(exist_ok=True)
         (work / "inbox" / name).write_bytes(data.replace(b"{workspace}", work.as_uri().encode()))
-    for name, data in case.elsewhere.items():
-        (work / "elsewhere").mkdir(exist_ok=True)
-        (work / "elsewhere" / name).write_bytes(data)
+    for path, data in case.files.items():
+        file = work / path
+        if data is None:
+            file.unlink()
+        else:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(data)
     # The run's Claude Code configuration sits beside its home.
     config = Path(os.environ["HOME"]).parent / "config"
     if not config.is_dir():

@@ -5,6 +5,7 @@ import sys
 
 import pytest
 
+from brain.read import CEILING
 from documents import DocumentError, Documents, main
 
 from conftest import PLUGIN, create
@@ -77,14 +78,17 @@ def test_a_move_removes_the_original_once_the_document_is_filed(documents, brain
     assert not invoice.exists()
 
 
-def test_a_document_already_filed_is_never_moved(documents, brain_dir, invoice):
+@pytest.mark.parametrize("move", [True, False])
+@pytest.mark.parametrize("path", ["car/invoice.pdf", "car/elsewhere.pdf"])
+def test_a_document_already_filed_is_never_filed_again(documents, brain_dir, invoice, move, path):
     documents.store(invoice, "car/invoice.pdf")
     filed = brain_dir / "documents" / "car" / "invoice.pdf"
+    filed.write_bytes(b"%PDF invoice, edited")
 
-    with pytest.raises(DocumentError, match="never moved"):
-        documents.store(filed, "car/elsewhere.pdf", move=True)
-    assert filed.exists()
-    assert not (brain_dir / "documents" / "car" / "elsewhere.pdf").exists()
+    with pytest.raises(DocumentError, match="at 'car/invoice.pdf', and is never filed again: check it"):
+        documents.store(filed, path, move=move)
+    assert filed.read_bytes() == b"%PDF invoice, edited"
+    assert [p.name for p in filed.parent.iterdir()] == ["invoice.pdf"]
 
 
 def test_an_original_that_cannot_be_removed_is_filed_and_reported(documents, brain_dir, invoice, monkeypatch):
@@ -150,6 +154,111 @@ def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, da
     printed = capsys.readouterr()
     assert printed.out == "" and "already filed" in printed.err
     assert invoice.exists()
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+@pytest.fixture
+def checked(brain_dir, reader, writer):
+    """A Documents that checks, and a function filing bytes at a path and
+    recording them as a document entry, returning the entry's id."""
+    brain_dir.mkdir()
+    documents = Documents(brain_dir, reader)
+
+    def record(path: str, data: bytes, event_date: str = "2026-01-01") -> str:
+        file = brain_dir / "documents" / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(data)
+        return create(writer, f"document-{sha(path.encode())[:8]}", type="document", event_date=event_date,
+                      details={"path": path, "sha256": sha(data)})
+
+    return documents, record
+
+
+NOTHING = {"changed": [], "moved": [], "missing": [], "unrecorded": []}
+
+
+def test_documents_as_recorded_check_clean(checked):
+    documents, record = checked
+    assert documents.check() == NOTHING
+    record("car/invoice.pdf", b"%PDF invoice")
+    record("house/deed.pdf", b"%PDF deed")
+
+    assert documents.check() == NOTHING
+
+
+def test_checking_finds_each_way_a_document_differs_from_its_entry(checked, brain_dir):
+    documents, record = checked
+    edited = record("work/prep-sheet.txt", b"Agenda: one")
+    moved = record("car/invoice.pdf", b"%PDF invoice")
+    deleted = record("car/old-title.pdf", b"%PDF title")
+    record("house/deed.pdf", b"%PDF deed")
+    root = brain_dir / "documents"
+    (root / "work" / "prep-sheet.txt").write_bytes(b"Agenda: one, two")
+    (root / "car" / "invoice.pdf").rename(root / "car" / "2026-09-14-invoice.pdf")
+    (root / "car" / "old-title.pdf").unlink()
+    (root / "house" / "survey.pdf").write_bytes(b"%PDF survey")
+    (root / "house" / ".survey.pdf.0a1b.tmp").write_bytes(b"part")
+
+    assert documents.check() == {
+        "changed": [{"path": "work/prep-sheet.txt", "entry": edited, "sha256": sha(b"Agenda: one, two")}],
+        "moved": [{"entry": moved, "from": "car/invoice.pdf", "to": "car/2026-09-14-invoice.pdf"}],
+        "missing": [{"path": "car/old-title.pdf", "entry": deleted}],
+        "unrecorded": [{"path": "house/survey.pdf", "sha256": sha(b"%PDF survey")}],
+    }
+
+
+def test_checking_a_folder_or_a_document_checks_only_it(checked, brain_dir):
+    documents, record = checked
+    edited = record("car/invoice.pdf", b"%PDF invoice")
+    record("cart/manual.pdf", b"%PDF manual")
+    deed = record("house/deed.pdf", b"%PDF deed")
+    root = brain_dir / "documents"
+    (root / "car" / "invoice.pdf").write_bytes(b"%PDF invoice, paid")
+    (root / "cart" / "manual.pdf").write_bytes(b"%PDF manual, revised")
+    (root / "house" / "deed.pdf").unlink()
+    change = {"path": "car/invoice.pdf", "entry": edited, "sha256": sha(b"%PDF invoice, paid")}
+
+    assert documents.check("car") == NOTHING | {"changed": [change]}
+    assert documents.check("car/invoice.pdf") == NOTHING | {"changed": [change]}
+    assert documents.check("house/deed.pdf") == NOTHING | {"missing": [{"path": "house/deed.pdf", "entry": deed}]}
+    with pytest.raises(DocumentError, match="nothing is filed at 'boat'"):
+        documents.check("boat")
+    with pytest.raises(DocumentError, match="relative"):
+        documents.check("../car")
+
+
+def test_checking_reads_past_the_search_ceiling(checked):
+    documents, record = checked
+    for number in range(CEILING + 1):
+        record(f"receipts/{number:03}.txt", f"Receipt {number}".encode(), f"2026-{number % 12 + 1:02}-01")
+
+    assert documents.check() == NOTHING
+
+
+def test_more_entries_on_one_date_than_a_search_returns_cannot_be_checked(checked):
+    documents, record = checked
+    for number in range(CEILING + 1):
+        record(f"receipts/{number:03}.txt", f"Receipt {number}".encode())
+
+    with pytest.raises(DocumentError, match=f"{CEILING + 1} document entries share the event date 2026-01-01"):
+        documents.check()
+
+
+def test_checking_needs_the_entries(documents):
+    with pytest.raises(DocumentError, match="needs the recorded entries"):
+        documents.check()
+
+
+def test_the_script_checks_through_the_same_index(brain_dir, data_dir, checked, capsys):
+    documents, record = checked
+    record("car/invoice.pdf", b"%PDF invoice")
+    (brain_dir / "documents" / "car" / "invoice.pdf").write_bytes(b"%PDF invoice, paid")
+
+    assert main(["check", "--brain", str(brain_dir), "--data", str(data_dir), "car"]) == 0
+    assert json.loads(capsys.readouterr().out)["changed"][0]["sha256"] == sha(b"%PDF invoice, paid")
 
 
 def test_the_launcher_runs_the_script_on_this_machines_python(brain_dir, invoice):
