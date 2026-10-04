@@ -4,7 +4,8 @@ It runs in the run's empty workspace, with `HOME` set to the run's own home,
 and gives the run what a configured machine has:
 
 - its own copy of the seeded Brain, in `brain/`;
-- the files the case hands over, in `inbox/`;
+- the files the case hands over, in `inbox/`, and those a pointer among them
+  names, in `elsewhere/`;
 - the Brain folder setting, which an eval run otherwise leaves empty, so the
   server would not start and the skills would name no folder;
 - the server's Python environment, built once by the launcher and copied
@@ -33,7 +34,10 @@ def main(case_name: str, venv: Path) -> int:
     shutil.copytree(seed.BRAIN, work / "brain")
     for name, data in case.inbox.items():
         (work / "inbox").mkdir(exist_ok=True)
-        (work / "inbox" / name).write_bytes(data)
+        (work / "inbox" / name).write_bytes(data.replace(b"{workspace}", work.as_uri().encode()))
+    for name, data in case.elsewhere.items():
+        (work / "elsewhere").mkdir(exist_ok=True)
+        (work / "elsewhere" / name).write_bytes(data)
     # The run's Claude Code configuration sits beside its home.
     config = Path(os.environ["HOME"]).parent / "config"
     if not config.is_dir():

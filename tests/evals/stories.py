@@ -540,6 +540,19 @@ INBOX = {
     "telescope-warranty.txt":
         "ORBIGLASS TELESCOPES\nWarranty card\n\nModel: Orbiglass 200\nBought: 20 September 2026\nWarranty: 5 years,"
         " lenses and mount\n",
+    # Pointers: a shared spreadsheet's, of a format no real product uses, and a
+    # shortcut to a file in the run's own folder.
+    "moonbeam-budget-tracker.zsheet":
+        '{"doc_id": "7Qx2mB9kLr", "url": "https://sheets.zorblax.invalid/d/7Qx2mB9kLr"}\n',
+    "coil-warranty.url":
+        "[InternetShortcut]\nURL={workspace}/elsewhere/2026-08-05-coil-warranty-certificate.txt\n",
+}
+
+ELSEWHERE = {
+    # Files kept outside the inbox that a pointer in it names, by name.
+    "2026-08-05-coil-warranty-certificate.txt":
+        "GIZMO'S GARAGE\nWarranty certificate, 5 August 2026\n\nGlidemaster 9 hovercart\nAnti-gravity coil, new,"
+        " fitted at 43,900 leagues\nWarranty: 2 years, parts and labour, to 5 August 2028\n",
 }
 """Files handed over in the filing cases. The coil invoice already filed is
 handed over again, as a copy, by `cases.py`."""

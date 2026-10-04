@@ -4,7 +4,8 @@ Every case starts from its own copy of the seeded Brain. Reads ask about the
 stories, and their graders hold the stories' facts. Writes ask for something
 to be recorded, corrected, renamed, merged, kept, or filed, or mention
 something in passing, and their graders check the skill that fired, the
-calls it made with their arguments, and the files it left. A case tagged
+calls it made with their arguments, and the files it left. Pointers hand over
+a file that only points to content kept elsewhere. A case tagged
 `bash` files documents with the document skill's script, so it needs a
 shell, which an eval run grants only where the host can sandbox it.
 """
@@ -13,7 +14,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 import seed
-from stories import INBOX
+from stories import ELSEWHERE, INBOX
 
 TOOL = "mcp__plugin_brain_brain__"
 IDS = seed.ids()
@@ -27,7 +28,10 @@ class Case:
     prompt: str
     graders: dict[str, dict]
     inbox: dict[str, bytes] = field(default_factory=dict)
-    """Files put in the run's `inbox/` folder, by name."""
+    """Files put in the run's `inbox/` folder, by name, each `{workspace}` in
+    them made the run's folder as a file URL."""
+    elsewhere: dict[str, bytes] = field(default_factory=dict)
+    """Files put in the run's `elsewhere/` folder, by name, for a pointer to name."""
     max_turns: int = 30
     timeout_seconds: int = 600
 
@@ -76,6 +80,25 @@ def judged(criteria: str) -> dict:
 def filed(glob: str, *, exists: bool = True) -> dict:
     """A document was filed, or none was, at a path inside `documents/` matching `glob`."""
     return {"type": "file_exists", "path": f"brain/documents/{glob}"} | ({} if exists else {"exists": False})
+
+
+def shell(*conditions: str, min: int = 1, max: int | None = None) -> dict:
+    """Bash was called, between `min` and `max` times, with a command matching
+    every one of `conditions`."""
+    grader = {"type": "tool_used", "tool": "Bash", "input_match": matching(*conditions)}
+    if min != 1:
+        grader["min"] = min
+    if max is not None:
+        grader["max"] = max
+    return grader
+
+
+def left(name: str) -> dict:
+    """No shell command names the file `name`, so it stays where the case put it.
+
+    A file grader cannot tell: it sees only files created during the run.
+    """
+    return shell(name.replace(".", r"\."), min=0, max=0)
 
 
 def holds(name: str, value: str) -> str:
@@ -316,4 +339,45 @@ FILING = [
          inbox={"telescope-warranty.txt": INBOX["telescope-warranty.txt"].encode()}),
 ]
 
-CASES = READS + WRITES + FILING
+BUDGET_TRACKER = "moonbeam-budget-tracker.zsheet"
+BUDGET_ADDRESS = r'"address"\s*:\s*"https://sheets\.zorblax\.invalid/d/7Qx2mB9kLr'
+COIL_CERTIFICATE = "2026-08-05-coil-warranty-certificate.txt"
+COIL_CERTIFICATE_BYTES = ELSEWHERE[COIL_CERTIFICATE].encode()
+
+
+POINTERS = [
+    Case("pointer-out-of-reach", ["write", "documents", "pointer"],
+         f"File inbox/{BUDGET_TRACKER} in the Brain.",
+         {"document-fired": skill("document"),
+          "nothing-filed": filed("**/*budget*", exists=False),
+          "nothing-recorded": never_write(),
+          "pointer-left": left(BUDGET_TRACKER),
+          "asks-what-it-holds": judged(
+              "PASS if the reply says the file only points to a spreadsheet kept elsewhere that could not be"
+              " reached, and asks the user what it holds. FAIL if it says the file was filed or recorded.")},
+         inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
+    Case("pointer-with-what-it-holds", ["write", "documents", "pointer"],
+         f"File inbox/{BUDGET_TRACKER} in the Brain. It's the Moonbeam budget tracker Prof. Quibblesworth"
+         " keeps; it shows $38,200 of the $55,000 spent as of today.",
+         {"document-fired": skill("document"),
+          "nothing-filed": filed("**/*budget*", exists=False),
+          "no-document-entry": never_write(holds("type", "document")),
+          "pointer-left": left(BUDGET_TRACKER),
+          "journal-with-its-address": write(NEW, JOURNAL, BUDGET_ADDRESS, "38,200", links("project-moonbeam"))},
+         inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
+    Case("pointer-to-a-file-here", ["write", "documents", "pointer", "bash"],
+         "File inbox/coil-warranty.url in the Brain.",
+         {"document-fired": skill("document"),
+          "filed-beside-the-coil-invoice": filed("vehicles/glidemaster-hovercart/service/*warranty*"),
+          "its-entry": write(NEW, holds("type", "document"), holds("sha256", sha256(COIL_CERTIFICATE_BYTES)),
+                             r'"path"\s*:\s*"vehicles/glidemaster-hovercart/service/', links("glidemaster-hovercart")),
+          "copied-not-moved": shell(r"documents\.py", r"\bstore\b", COIL_CERTIFICATE.replace(".", r"\."),
+                                    r"(?!.*--move)"),
+          "original-never-removed": shell(COIL_CERTIFICATE.replace(".", r"\."),
+                                          r"(?:--move|\brm\b|\bdel\b|\bmv\b|Remove-Item|Move-Item)", min=0, max=0),
+          "pointer-left": left("coil-warranty.url")},
+         inbox={"coil-warranty.url": INBOX["coil-warranty.url"].encode()},
+         elsewhere={COIL_CERTIFICATE: COIL_CERTIFICATE_BYTES}),
+]
+
+CASES = READS + WRITES + FILING + POINTERS

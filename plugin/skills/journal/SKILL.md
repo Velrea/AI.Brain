@@ -30,6 +30,7 @@ description: <one line: what happened and what about it matters>
 body: <what happened, every value as given, everyone by name; decisions, commitments with owner and date, open questions>
 links: <subjects, document entries, the entry it follows on from>
 source: <how it arrived, one word>
+details: <only for content kept elsewhere: {"address": "<where it lives>"}>
 ```
 
 - One event per entry.
@@ -40,6 +41,8 @@ source: <how it arrived, one word>
 ## Documents
 
 From `document`: one entry summarizing what was captured and what surrounds it, linking each document entry. Ask only what the documents leave unclear. Date it by the event, else the capture day. One entry per event.
+
+Content kept elsewhere, from `document`: an entry recording what it says when read, with its address.
 
 ## Corrections
 
