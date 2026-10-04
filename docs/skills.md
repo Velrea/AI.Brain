@@ -2,7 +2,7 @@
 
 The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot: what each type of entry is, what is worth recording, what to ask first, how an entry reads, where a document belongs, and how entries fold into an answer. [The MCP server](mcp-server.md) knows no type: it carries the core module's rules, in each tool's description and in what it refuses, so an agent without the skills still writes valid entries. A skill holds what a tool's description should not, and never restates what a tool enforces.
 
-**A skill defines its type.** It gives `write` the type and version as fixed values, and leaves placeholders for the model to fill, so the shape of each type lives in one place. A skill someone writes for their own use defines a type of its own the same way, with no change to the server, as [Extending the Brain](extending.md) describes.
+**A skill defines its type.** It gives `write` the type and version as fixed values, and leaves placeholders for the model to fill, so the shape of each type lives in one place. A workflow of someone's own records through these skills, as [Custom workflows](workflows.md) describes.
 
 **An entry reads on its own.** Its description and body carry everything a reader needs, so `query` answers from entries of any type without loading the skill that wrote them. `details` holds only values a skill matches exactly, such as a document's `sha256` or a snapshot's `scope`.
 
