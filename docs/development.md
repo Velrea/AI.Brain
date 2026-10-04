@@ -24,6 +24,8 @@ python -m venv .venv
 
 On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request runs the same tests on Windows, Linux, and macOS, and cannot merge until they pass.
 
+The [evals](evals.md) test the whole plugin played through a model, against a fictional Brain. They cost model calls, so they run on demand rather than on every pull request.
+
 ## Running the plugin
 
 Run the plugin under development with `claude --plugin-dir plugin`, rather than from a marketplace install, so Claude Code loads the working copy.
