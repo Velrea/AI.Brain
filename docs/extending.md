@@ -1,71 +1,73 @@
 # Extending the Brain
 
-Add a use the plugin does not cover by writing a skill of your own that records entries through the Brain's tools.
+The Brain is a knowledge store. A workflow of your own, such as a research method or a hunt for something, lives outside it and records what it finds through the plugin's skills. Most never need anything more.
 
-## 1. Put the skill where the plugin is installed
+## Record through the plugin's skills
+
+| What you have | Record it with |
+| --- | --- |
+| A person, company, place, thing, or topic you keep coming back to | `entity` |
+| Something that happened, or something you found | `journal`, linked to what it is about |
+| An answer you keep current, such as a profile or a shortlist | `snapshot` |
+| A file, or a link to content kept elsewhere | `document` |
+
+`query` answers from all of it.
+
+## Write a workflow
+
+1. Keep the method where you keep your work: a skill of your own, a project's files, or a note. Not in the Brain.
+2. Say in it what to record, and with which skill.
+3. Link every entry to the entities it is about, so a search by one returns everything about it.
+
+A workflow that is a skill goes where the plugin is installed:
 
 | Plugin installed with | Put the skill in |
 | --- | --- |
 | `--scope user`, the default | `~/.claude/skills/<name>/SKILL.md` |
 | `--scope project` or `--scope local` | `<project>/.claude/skills/<name>/SKILL.md` |
 
-## 2. Write the skill
+Example, `~/.claude/skills/breeder-scout/SKILL.md`:
 
-- Pick a type: a slug, never `journal`, `entity`, `snapshot`, or `document`.
-- Give `write` the type and `version: 1` as fixed values, and a placeholder for every other field.
-- Put everything a reader needs in `description` and `body`.
-- Put a value in `details` only to search by it exactly.
-- Link each entry to the entities it is about. Record a missing one with the `entity` skill.
-- Change an entry by revising it, never by writing a second one.
+```markdown
+---
+name: breeder-scout
+description: "Scouts teacup-dragon breeders and records what it finds in the Brain."
+when_to_use: "The user asks to scout, find, or vet teacup-dragon breeders."
+---
 
-## 3. Use the tools
+1. Search the breeder registries and the forums for breeders taking new clients.
+2. For each breeder: record it with `entity` if the Brain has no entry for it yet.
+3. Find who runs it, how long it has bred, and what its customers say. Record the findings with `journal`, linked to the breeder.
+4. Update the shortlist with `snapshot`, linked to every breeder on it.
+```
 
-Every skill uses the same three tools, named `mcp__plugin_brain_brain__write`, `__search`, and `__read`.
+## A type of your own
 
-**`write`** creates an entry, or revises one, and returns its `id`.
+Only when you must find entries by a value that words cannot, such as which tasks are still open.
 
-| Field | To create | To revise |
+- The type is a slug, never `journal`, `entity`, `snapshot`, or `document`. Its version starts at 1.
+- The description and body carry everything a reader needs. `query` reads them without your skill.
+- `details` holds only values to search by exactly.
+- Change an entry by revising it with its id, never by writing a second one.
+- Never write, edit, move, or delete files in the Brain folder, or import the plugin's Python.
+
+The tools are `mcp__plugin_brain_brain__write`, `__search`, and `__read`.
+
+| `write` field | To create | To revise |
 | --- | --- | --- |
 | `type`, `version` | required | required, the entry's own |
 | `entry` | left out | the entry's id |
-| `slug` | required: lowercase words joined by hyphens, carried by no other entry | adds a name |
+| `slug` | required: lowercase words joined by hyphens, unique | adds a name |
 | `event_date` | required, `YYYY-MM-DD` | replaces it |
 | `description` | required, one line | replaces it |
 | `body` | required, Markdown | kept under the original as an amendment |
 | `links` | slugs of entries it is about | replaces them |
 | `aliases` | other names it goes by | adds to them |
-| `details` | the type's own fields, a JSON object | replaces each field given; `null` removes one |
-| `source` | how it arrived, one word | |
+| `details` | a JSON object | replaces each field given; `null` removes one |
 
-**`search`** returns lean hits: each one's `id`, `type`, `slugs`, `event_date`, `recorded_at`, `description`, and a snippet.
+`search` takes `pattern` (words), `slugs`, `names` (with `types`), `types`, `event_date_from`, `event_date_to`, `recorded_after`, `details` (matched exactly), and `newest_first`, and returns lean hits; past 100 it fails with date ranges to search instead. `read` takes `ids` and returns those entries whole.
 
-| Field | Finds |
-| --- | --- |
-| `pattern` | words in the description, body, or amendments |
-| `slugs` | the entries carrying them, and every entry linking to them |
-| `names` | up to five entries per name whose slug, alias, or description matches; needs `types` |
-| `types` | only entries of these types |
-| `event_date_from`, `event_date_to` | entries within these dates, inclusive |
-| `recorded_after` | entries recorded or revised after this UTC time |
-| `details` | entries whose fields match these exactly |
-| `newest_first` | newest first, rather than oldest |
-
-A search that finds more than 100 entries fails with event-date ranges to search instead.
-
-**`read`** takes `ids` and returns those entries whole, as they stand now.
-
-## 4. Try it
-
-Start a new session and ask for what the skill does.
-
-## Never
-
-- Write, edit, move, or delete files in the Brain folder. Hand a file to the `document` skill.
-- Import the plugin's Python, or change its files.
-
-## Example: tasks
-
-`~/.claude/skills/task/SKILL.md`:
+Example, `~/.claude/skills/task/SKILL.md`:
 
 ````markdown
 ---
@@ -105,5 +107,3 @@ details: {"status": "done"}
 
 `search` with `types: ["task"]`, `details: {"status": "open"}`. `read` the ids, and list each with what it is for and by when.
 ````
-
-Then: *"Add a task: re-trim the hovercart's left hover jets before the October float inspection."*

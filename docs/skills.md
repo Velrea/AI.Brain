@@ -4,6 +4,8 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 **A skill defines its type.** It gives `write` the type and version as fixed values, and leaves placeholders for the model to fill, so the shape of each type lives in one place. A skill someone writes for their own use defines a type of its own the same way, with no change to the server, as [Extending the Brain](extending.md) describes.
 
+**An entry reads on its own.** Its description and body carry everything a reader needs, so `query` answers from entries of any type without loading the skill that wrote them. `details` holds only values a skill matches exactly, such as a document's `sha256` or a snapshot's `scope`.
+
 **Work beyond entries is the skill's own.** A skill that needs more than writing and reading entries carries a script for it beside its `SKILL.md`, standard library only, and runs it through the plugin's launcher with `run`, so it reaches Python the same way the server does on every machine. The script can call the core module, which is standard library only too, to search what is recorded. The skill's text names the script by `${CLAUDE_SKILL_DIR}`, and hands it the Brain folder by `${user_config.brain_folder}` and the plugin data folder, where the index is, by `${CLAUDE_PLUGIN_DATA}`, all of which the host fills in when the skill loads.
 
 **Each skill teaches the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully.
