@@ -29,6 +29,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 - **A correction and new information are separate writes.** A correction fixes what an entry recorded wrong and revises that entry; new information about the same story is a new entry on its own date, linking to the one it follows on from. One account that carries both produces both. Telling the parts apart means reading the whole account against the entry, which takes judgment, so the skill does it and no tool can.
 - **An entry keeps every link or reference to where more of its account lives**, so a later query can follow it.
 - **Captured documents get a journal entry** recording what they say, summarized, and what surrounds them, linking to each document entry; documents about one event share it.
+- **Content kept elsewhere is recorded with its address**, as `address` in the entry's details, so a search by that address finds every reading of it.
 
 ## Entity
 
@@ -59,9 +60,12 @@ Handed a file, `document` reads it, chooses where it belongs, files it with its 
 
 ```mermaid
 flowchart LR
-    read["Read the document"] --> browse["Browse the documents<br/>from the top down"]
+    read["Read the document"] --> pointer{"Only points to<br/>content elsewhere?"}
+    pointer -- no --> browse["Browse the documents<br/>from the top down"]
+    pointer -- "to a file on<br/>this machine" --> browse
+    pointer -- "anywhere else" --> address["journal records what<br/>it says, with its address"]
     browse --> fits{"A folder holds<br/>documents like it?"}
-    fits -- yes --> file["store, moving it"]
+    fits -- yes --> file["store: moving it,<br/>or copying what<br/>a pointer names"]
     fits -- no --> ask["Offer two or three paths,<br/>the recommended first"]
     ask --> file
     file -- "already recorded" --> skip["Skip it; the original<br/>stays where it is"]
@@ -69,13 +73,14 @@ flowchart LR
     write --> journal["journal records the capture,<br/>linking to each document"]
 ```
 
-- **The document moves, not a copy.** One copy remains, and it is the filed one, so a folder of documents to deal with empties as they are handled.
+- **The document moves, not a copy.** One copy remains, and it is the filed one, so a folder of documents to deal with empties as they are handled. A file a pointer names is copied instead, since whatever else uses the pointer still expects it where it is.
 - **The documents folder is organized for a person.** The user browses it by hand, so it grows in up to three levels a person would look through: an area, the specific thing within it, and the kind of document, such as `assets/blue-hatchback/service/`. A file is named for the date of the event it records, then what it is, so a folder lists by when things happened. Where the folders in use follow a pattern of their own, the skill follows that instead.
 - **It asks only where nothing is like it.** A document whose like is already filed goes beside it without asking; otherwise the user picks from two or three paths, so placement stays the user's call without a question for every document.
 - **A document is filed once.** The script refuses contents a document entry already names, so a duplicate is caught by code, not by the skill's judgment.
 - **The document entry carries its contents**, less any boilerplate, and links to its subjects, with its `path` and `sha256` in its details, written after the file is filed, so a pointer never points at nothing. A search finds the entry and an answer folds it in, so the contents are in the record without opening the file; the file is there to go back to.
 - **A changed document revises its entry** with its new `sha256`, so the original's hash still says what the document was when it was recorded.
-- **A web page is never copied into the Brain.** The skill offers to journal what it says instead.
+- **Content kept elsewhere is never filed.** A web page, or a file whose contents only point to content kept elsewhere, would put a few bytes of address in the Brain, with none of the content, and a hash that never changes when the content does. The skill reads the content through whatever the session can reach, or asks what it holds, and `journal` records what it says with its address. The pointer file stays where it was.
+- **The model, not the script, recognizes a pointer.** It reads every file before filing it, and a pointer's contents are plainly an address; the script could tell one apart only by a list of every product's pointer format, and the skill names no product, so it covers any that leaves one.
 
 ### The script
 
