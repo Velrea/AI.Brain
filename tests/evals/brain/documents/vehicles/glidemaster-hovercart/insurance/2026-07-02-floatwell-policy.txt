@@ -1,0 +1,11 @@
+FLOATWELL INSURANCE
+Policy FW-77-ZB
+
+Vehicle: Glidemaster 9 hovercart, purple
+Period: 1 July 2026 to 31 December 2026
+Premium: $310
+Excess: $250
+Covered: collision, theft, low-flying geese
+Not covered: flight above 40 feet
+
+Floatwell Insurance. Keep this policy in the hovercart.

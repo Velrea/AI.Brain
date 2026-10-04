@@ -18,10 +18,11 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 ## Journal
 
-`journal` asks follow-up questions until the account is complete, finds the entry's subjects, reads the newest entry like it to match its layout, and writes it.
+`journal` finds the entry's subjects, reads the newest entry on the same subject to match its layout, and writes what it was given.
 
 - **Unprompted, it judges whether the user was a party to the event and whether it has happened**, not how important it seems. A party's account of something done is recorded; an observation, an intention, or something found is offered first; the session's own work is never recorded.
-- **It asks before guessing.** An entry is permanent, so an unclear date, name, or figure goes to the user before it is written.
+- **It asks only where it would otherwise guess.** An entry is permanent, so a date, name, or figure the account leaves out or leaves unclear goes to the user before it is written. Anything else is written as given: asked to record a simple event, a model that went on to ask for every detail a long entry might hold recorded nothing.
+- **The newest entry it reads is one on the same subject**, found by the subject's slug, so the search stays small: the newest of every journal entry is a search past the ceiling in a Brain of any size.
 - **The description is written for triage**, such as "Oil change at 48k, rear brakes flagged as worn" rather than "Oil change". A search returns only lean hits, so the description decides whether an entry is read, and it is written once, by a model looking at that entry alone.
 - **The slug is the date and a few words**, so it reads as the event it names.
 - **Subjects are found before writing**, every one at once by a search by names, including the broad subject an entry falls under, so a question about the whole subject finds it. The entry links to each, and to an earlier entry it follows on from; a subject with no match is recorded through `entity`.

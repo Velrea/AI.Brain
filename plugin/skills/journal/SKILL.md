@@ -15,9 +15,9 @@ Record what happened so a reader months later can follow it.
 
 ## Before writing
 
-- Ask follow-ups until the account is complete. Never guess a date, name, or figure.
+- Never guess a date, name, or figure: ask only for one the account leaves out or leaves unclear. Otherwise write what was given, and ask for nothing more.
 - Find every subject and the broad subject it falls under: one `search` by `names`, `types: ["entity"]`. Record missing subjects and new names through `entity`. Ask about an uncertain match.
-- Read the newest entry of the same kind; follow its layout.
+- Read the newest entry on the same subject (`search` by its slug, `types: ["journal"]`, `newest_first`); follow its layout.
 
 ## Write
 

@@ -9,6 +9,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 
+# Eval runs
+tests/evals/.cache/
+tests/evals/results/
+
 # OS
 .DS_Store
 Thumbs.db

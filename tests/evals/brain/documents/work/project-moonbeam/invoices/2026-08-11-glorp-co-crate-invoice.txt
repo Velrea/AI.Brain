@@ -1,0 +1,9 @@
+GLORP CO
+Invoice G-4410, 11 August 2026
+
+To: Zorblax Industries
+Crates damaged in transit: 40
+Charge: $2.10 a crate
+Total: $84
+
+Pay within 14 days.
