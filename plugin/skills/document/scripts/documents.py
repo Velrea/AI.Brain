@@ -1,6 +1,6 @@
 """The document skill's file work: filing a document into the Brain folder's
-`documents/`, and listing a folder of it. Standard library only, with the core
-module beside it in the plugin.
+`documents/`, listing a folder of it, and checking it against what is
+recorded. Standard library only, with the core module beside it in the plugin.
 
 A filed document is a file at a path inside `documents/`, with its sha256,
 copied or moved there, and recorded afterwards as an entry of type `document`
@@ -9,12 +9,16 @@ same contents there again returns it as it is, and filing others there is
 refused, so a pointer to a document never comes to point at something else.
 Contents a document entry already names are refused wherever they would be
 filed, found through the core module's search, so a document is filed once.
+A file already inside `documents/` is never filed again: the user may edit,
+move, add, or delete files there by hand, and checking finds each such change
+for the entries to record.
 
 Each command prints one JSON object; a failure prints its message to stderr
 and exits 1.
 
     documents.py store --brain <folder> --data <folder> <file> <path> [--move]
     documents.py list --brain <folder> [<path>]
+    documents.py check --brain <folder> --data <folder> [<path>]
 """
 
 import argparse
@@ -32,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from brain.index import IndexUnavailable  # noqa: E402
-from brain.read import Reader  # noqa: E402
+from brain.read import CEILING, Reader, TooManyHits  # noqa: E402
 from server.folders import FolderError, data_dir  # noqa: E402
 
 DOCUMENT = "document"
@@ -54,7 +58,8 @@ class DocumentError(ValueError):
 class Documents:
     """Files documents into one Brain folder's `documents/`, and lists them.
 
-    Given a `reader`, filing refuses contents a document entry already names.
+    Given a `reader`, filing refuses contents a document entry already names,
+    and checking compares the documents with the entries.
     """
 
     def __init__(self, brain_dir: Path, reader: Reader | None = None):
@@ -73,19 +78,21 @@ class Documents:
         `path` is relative, with `/` between folders, which are created as
         needed. Raises DocumentError for a source that is not a file, a path
         that is not one, a path that already holds other contents, contents a
-        document entry already names, and a move of a document already filed,
-        which would leave the entries naming it pointing at nothing. A source
-        that cannot be removed raises DocumentError too, after the document is
-        filed, with its path and sha256.
+        document entry already names, and a source already inside
+        `documents/`, which filing would copy or, moved, leave the entries
+        naming it pointing at nothing. A source that cannot be removed raises
+        DocumentError too, after the document is filed, with its path and
+        sha256.
         """
         source = Path(source)
         if not source.is_file():
             raise DocumentError(f"no file is at {str(source)!r}")
         target = self.root.joinpath(*_parts(path))
-        if move and source.resolve().is_relative_to(self.root):
+        if source.resolve().is_relative_to(self.root):
+            filed = source.resolve().relative_to(self.root).as_posix()
             raise DocumentError(
-                f"{str(source)!r} is already filed in the Brain's documents, and a filed document is never"
-                f" moved: entries point at it where it is"
+                f"{str(source)!r} is already in the Brain's documents, at {filed!r}, and is never filed again:"
+                f" check it to find what changed since it was recorded"
             )
         if self.reader is not None:
             self._unrecorded(sha256(source))
@@ -138,6 +145,87 @@ class Documents:
             elif child.is_file():
                 documents.append(child.name)
         return {"folders": folders, "documents": documents}
+
+    def check(self, path: str = "") -> dict:
+        """How the documents at `path` inside `documents/`, a folder or one
+        document, every one when empty, differ from what the document entries
+        record, as `{"changed": [...], "moved": [...], "missing": [...], "unrecorded": [...]}`,
+        each in path order:
+
+        - changed, `{"path", "entry", "sha256"}`: a document whose contents are
+          not the ones its entry names, with their sha256 now;
+        - moved, `{"entry", "from", "to"}`: an entry whose document is gone from
+          its path, with the same contents at a path no entry names;
+        - missing, `{"path", "entry"}`: an entry whose document is gone, its
+          contents nowhere checked;
+        - unrecorded, `{"path", "sha256"}`: a document no entry names.
+
+        Every document checked is read whole, to hash it. Names starting with a
+        dot, as a copy in progress is, are left out. Raises DocumentError for a
+        path neither filed nor named by an entry.
+        """
+        if self.reader is None:
+            raise DocumentError("checking needs the recorded entries to compare with")
+        prefix = "/".join(_parts(path)) if path else ""
+        base = self.root.joinpath(*prefix.split("/")) if prefix else self.root
+
+        def within(name: str) -> bool:
+            return not prefix or name == prefix or name.startswith(prefix + "/")
+
+        found = {}
+        if base.is_file():
+            found[prefix] = sha256(base)
+        elif base.is_dir():
+            for folder, folders, files in os.walk(base):
+                folders[:] = [name for name in folders if not name.startswith(".")]
+                for name in files:
+                    if not name.startswith("."):
+                        file = Path(folder, name)
+                        found[file.relative_to(self.root).as_posix()] = sha256(file)
+        recorded = {}
+        for record in self._documents():
+            named = record["details"].get("path")
+            if isinstance(named, str) and within(named):
+                recorded[named] = (record["id"], record["details"].get("sha256"))
+        if prefix and not found and not recorded:
+            raise DocumentError(f"nothing is filed at {prefix!r}, and no document entry names it")
+
+        changed = [{"path": name, "entry": entry, "sha256": found[name]}
+                   for name, (entry, digest) in recorded.items() if name in found and found[name] != digest]
+        unrecorded = {name: digest for name, digest in found.items() if name not in recorded}
+        moved, missing = [], []
+        for name, (entry, digest) in recorded.items():
+            if name in found:
+                continue
+            to = next((other for other in sorted(unrecorded) if unrecorded[other] == digest), None)
+            if to is None:
+                missing.append({"path": name, "entry": entry})
+            else:
+                moved.append({"entry": entry, "from": name, "to": to})
+                del unrecorded[to]
+        return {
+            "changed": sorted(changed, key=lambda item: item["path"]),
+            "moved": sorted(moved, key=lambda item: item["from"]),
+            "missing": sorted(missing, key=lambda item: item["path"]),
+            "unrecorded": [{"path": name, "sha256": unrecorded[name]} for name in sorted(unrecorded)],
+        }
+
+    def _documents(self) -> list[dict]:
+        """Every document entry, read whole: found by event-date ranges where
+        one search would pass the ceiling. Raises DocumentError when one date
+        alone does."""
+        try:
+            hits = self.reader.search(types=[DOCUMENT])
+        except TooManyHits as many:
+            hits = []
+            for start, end, count in many.ranges:
+                if count > CEILING:
+                    raise DocumentError(
+                        f"{count} document entries share the event date {start}, more than one search returns,"
+                        f" so the documents cannot be checked against them"
+                    ) from many
+                hits += self.reader.search(types=[DOCUMENT], event_date_from=start, event_date_to=end)
+        return self.reader.read([hit.id for hit in hits])
 
     def _unrecorded(self, digest: str) -> None:
         """Raises DocumentError when a document entry already names these contents."""
@@ -216,16 +304,23 @@ def main(argv: list[str]) -> int:
     listing = commands.add_parser("list")
     listing.add_argument("--brain", type=Path, required=True)
     listing.add_argument("path", nargs="?", default="")
+    checking = commands.add_parser("check")
+    checking.add_argument("--brain", type=Path, required=True)
+    checking.add_argument("--data", default="")
+    checking.add_argument("path", nargs="?", default="")
     args = parser.parse_args(argv)
     try:
-        if args.command == "store":
+        if args.command == "list":
+            result = Documents(args.brain).browse(args.path)
+        else:
             # The same plugin data folder, and so the same index, the server reads.
             data, _ = data_dir(args.brain.resolve(), {"BRAIN_DATA_DIR": args.data})
             documents = Documents(args.brain, Reader(args.brain, data))
-            result = documents.store(args.file, args.path, move=args.move)
-        else:
-            result = Documents(args.brain).browse(args.path)
-    except (DocumentError, FolderError, IndexUnavailable, OSError) as error:
+            if args.command == "store":
+                result = documents.store(args.file, args.path, move=args.move)
+            else:
+                result = documents.check(args.path)
+    except (DocumentError, FolderError, IndexUnavailable, TooManyHits, OSError) as error:
         print(error, file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False))

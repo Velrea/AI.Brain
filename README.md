@@ -76,6 +76,7 @@ AI.Brain is in development.
 - [The skills](docs/skills.md): the judgment Claude brings to recording, answering, and filing.
 - [The core module](docs/core-module.md): how the record is kept, written, and read back.
 - [The MCP server](docs/mcp-server.md): how Claude reaches the Brain, and how the plugin prepares the machine to run it.
+- [Custom workflows](docs/workflows.md): using the Brain from a workflow of your own.
 - [Development](docs/development.md): running the tests and the plugin from a working copy.
 - [Work](docs/work/): what is being built, and the choices already settled for it.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.

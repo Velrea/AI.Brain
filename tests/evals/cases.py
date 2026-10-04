@@ -5,7 +5,8 @@ stories, and their graders hold the stories' facts. Writes ask for something
 to be recorded, corrected, renamed, merged, kept, or filed, or mention
 something in passing, and their graders check the skill that fired, the
 calls it made with their arguments, and the files it left. Pointers hand over
-a file that only points to content kept elsewhere. A case tagged
+a file that only points to content kept elsewhere, and the cases for
+documents filed already change one by hand before the run. A case tagged
 `bash` files documents with the document skill's script, so it needs a
 shell, which an eval run grants only where the host can sandbox it.
 """
@@ -30,8 +31,9 @@ class Case:
     inbox: dict[str, bytes] = field(default_factory=dict)
     """Files put in the run's `inbox/` folder, by name, each `{workspace}` in
     them made the run's folder as a file URL."""
-    elsewhere: dict[str, bytes] = field(default_factory=dict)
-    """Files put in the run's `elsewhere/` folder, by name, for a pointer to name."""
+    files: dict[str, bytes | None] = field(default_factory=dict)
+    """Files written into the run's folder by path, once the seeded Brain and
+    the inbox are there, replacing any there; None removes one."""
     max_turns: int = 30
     timeout_seconds: int = 600
 
@@ -377,7 +379,35 @@ POINTERS = [
                                           r"(?:--move|\brm\b|\bdel\b|\bmv\b|Remove-Item|Move-Item)", min=0, max=0),
           "pointer-left": left("coil-warranty.url")},
          inbox={"coil-warranty.url": INBOX["coil-warranty.url"].encode()},
-         elsewhere={COIL_CERTIFICATE: COIL_CERTIFICATE_BYTES}),
+         files={f"elsewhere/{COIL_CERTIFICATE}": COIL_CERTIFICATE_BYTES}),
 ]
 
-CASES = READS + WRITES + FILING + POINTERS
+BUDGET_SHEET = "work/project-moonbeam/budget/2026-08-19-moonbeam-budget-sheet.txt"
+BUDGET_SHEET_EDITED = (seed.BRAIN / "documents" / BUDGET_SHEET).read_bytes().replace(
+    b"Freight: $2,700\nSpent: $31,400", b"Freight: $2,700\nSecond lens: $4,600\nSpent: $36,000")
+GNOME_NOTICE = "home/wobblestone-cottage/gnome-association/2026-09-02-gnome-height-notice.txt"
+GNOME_NOTICE_MOVED = "home/wobblestone-cottage/2026-09-02-gnome-height-notice.txt"
+CHECKED = shell(r"documents\.py", r"\bcheck\b")
+NO_NEW_DOCUMENT = never_write(NEW, holds("type", "document"))
+
+FILED_ALREADY = [
+    Case("record-an-edited-document", ["write", "documents", "bash"],
+         "I updated the Moonbeam budget sheet in the Brain's documents. Record the change.",
+         {"document-fired": skill("document"),
+          "checked": CHECKED,
+          "revised-with-its-new-hash": write(revises("2026-08-19-moonbeam-budget-sheet"),
+                                             holds("sha256", sha256(BUDGET_SHEET_EDITED))),
+          "no-new-document-entry": NO_NEW_DOCUMENT},
+         files={f"brain/documents/{BUDGET_SHEET}": BUDGET_SHEET_EDITED}),
+    Case("check-the-documents", ["write", "documents", "bash"],
+         "Check my filed documents for anything that changed.",
+         {"document-fired": skill("document"),
+          "checked": CHECKED,
+          "moved-to-its-new-path": write(revises("2026-09-02-gnome-height-notice-letter"),
+                                         holds("path", GNOME_NOTICE_MOVED.replace(".", r"\."))),
+          "no-new-document-entry": NO_NEW_DOCUMENT},
+         files={f"brain/documents/{GNOME_NOTICE}": None,
+                f"brain/documents/{GNOME_NOTICE_MOVED}": (seed.BRAIN / "documents" / GNOME_NOTICE).read_bytes()}),
+]
+
+CASES = READS + WRITES + FILING + POINTERS + FILED_ALREADY

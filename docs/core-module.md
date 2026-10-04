@@ -4,7 +4,7 @@ The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-lev
 
 A Brain is an append-only log of entries. It holds events, never current state; how things stand now is worked out by reading the entries in order. A record is never edited, and a correction is a new record.
 
-The core module knows no type of entry. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry, an entity, or a filed document, is defined by [the skill](skills.md) that writes it. So a skill someone writes for their own use records its own type with no change here or to the server. Work a skill needs beyond writing and reading entries, such as filing a document's file, is done by the skill's own script.
+The core module knows no type of entry. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry, an entity, or a filed document, is defined by [the skill](skills.md) that writes it. So a new type needs no change here or to the server. Work a skill needs beyond writing and reading entries, such as filing a document's file, is done by the skill's own script.
 
 | Module | Holds |
 | --- | --- |
