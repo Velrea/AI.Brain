@@ -1,58 +1,109 @@
 # Extending the Brain
 
-The plugin's skills record journal entries, entities, snapshots, and filed documents, and answer from them. A use with behavior of its own, such as a ledger, a research topic, or a job search, is built as a skill of your own on the same tools, kept in your own setup: a personal skill in `~/.claude/skills/<name>/SKILL.md`, or a project's in `.claude/skills/`. The plugin ships no skill for a particular use, since one person's ledger is not another's.
+Add a use the plugin does not cover by writing a skill of your own that records entries through the Brain's tools.
 
-## The tools
+## 1. Put the skill where the plugin is installed
 
-A skill reaches the Brain through [the MCP server's](mcp-server.md) three tools, the same ones the plugin's skills use, named `mcp__plugin_brain_brain__write`, `__search`, and `__read`:
-
-| Tool | Does |
+| Plugin installed with | Put the skill in |
 | --- | --- |
-| `write` | creates an entry of any type, or revises one given its id |
-| `search` | finds entries by words, slugs, names, type, event date, recorded time, and `details` fields |
-| `read` | returns entries by id, whole, with their amendments |
+| `--scope user`, the default | `~/.claude/skills/<name>/SKILL.md` |
+| `--scope project` or `--scope local` | `<project>/.claude/skills/<name>/SKILL.md` |
 
-Never import the core module's Python instead. It lives in the plugin's install folder, which every update replaces; it runs in the plugin's own environment; and writing through it skips the checks the tools carry. No tool is for a particular type, so a new type needs no change to the server or the core module.
+## 2. Write the skill
 
-## Define a type
+- Pick a type: a slug, never `journal`, `entity`, `snapshot`, or `document`.
+- Give `write` the type and `version: 1` as fixed values, and a placeholder for every other field.
+- Put everything a reader needs in `description` and `body`.
+- Put a value in `details` only to search by it exactly.
+- Link each entry to the entities it is about. Record a missing one with the `entity` skill.
+- Change an entry by revising it, never by writing a second one.
 
-A skill defines its type the way [the plugin's skills](skills.md) do: it gives `write` the type and version as fixed values, and leaves placeholders for the model to fill. Everything the type adds goes in `details`; the envelope's fields mean the same for every type. A skill for a hoard ledger might hold:
+## 3. Use the tools
+
+Every skill uses the same three tools, named `mcp__plugin_brain_brain__write`, `__search`, and `__read`.
+
+**`write`** creates an entry, or revises one, and returns its `id`.
+
+| Field | To create | To revise |
+| --- | --- | --- |
+| `type`, `version` | required | required, the entry's own |
+| `entry` | left out | the entry's id |
+| `slug` | required: lowercase words joined by hyphens, carried by no other entry | adds a name |
+| `event_date` | required, `YYYY-MM-DD` | replaces it |
+| `description` | required, one line | replaces it |
+| `body` | required, Markdown | kept under the original as an amendment |
+| `links` | slugs of entries it is about | replaces them |
+| `aliases` | other names it goes by | adds to them |
+| `details` | the type's own fields, a JSON object | replaces each field given; `null` removes one |
+| `source` | how it arrived, one word | |
+
+**`search`** returns lean hits: each one's `id`, `type`, `slugs`, `event_date`, `recorded_at`, `description`, and a snippet.
+
+| Field | Finds |
+| --- | --- |
+| `pattern` | words in the description, body, or amendments |
+| `slugs` | the entries carrying them, and every entry linking to them |
+| `names` | up to five entries per name whose slug, alias, or description matches; needs `types` |
+| `types` | only entries of these types |
+| `event_date_from`, `event_date_to` | entries within these dates, inclusive |
+| `recorded_after` | entries recorded or revised after this UTC time |
+| `details` | entries whose fields match these exactly |
+| `newest_first` | newest first, rather than oldest |
+
+A search that finds more than 100 entries fails with event-date ranges to search instead.
+
+**`read`** takes `ids` and returns those entries whole, as they stand now.
+
+## 4. Try it
+
+Start a new session and ask for what the skill does.
+
+## Never
+
+- Write, edit, move, or delete files in the Brain folder. Hand a file to the `document` skill.
+- Import the plugin's Python, or change its files.
+
+## Example: tasks
+
+`~/.claude/skills/task/SKILL.md`:
+
+````markdown
+---
+name: task
+description: "Records a task, marks one done, and lists what is open."
+when_to_use: "The user asks to add, finish, or list tasks."
+---
+
+## Add
+
+Find its subjects: `search` by `names`, `types: ["entity"]`. Then `write`:
 
 ```
-type: hoard-ledger
+type: task
 version: 1
-slug: <YYYY-MM-DD>-<what came in or went out>
-event_date: <the day it happened>
-description: <one line: what changed and by how much>
-body: <what happened, every value as given>
-links: <the hoard's entity, and anyone involved>
-details: {"coins": <the change, negative when spent>, "currency": "<the coin>"}
+slug: <a few words>
+event_date: <today>
+description: <the task, one line>
+body: <what is to be done, by when, and for whom>
+links: <its subjects>
+details: {"status": "open"}
 ```
 
-- **The type is a slug of its own**, never `journal`, `entity`, `snapshot`, or `document`, which the plugin's skills define.
-- **The version starts at 1.** Raise it when the shape of `details` changes, and have the skill read every version it has written, since entries are never rewritten.
-- **Leave the tools' rules to the tools.** A slug already taken, a link no entry carries, a bad date, or a revision of another type's entry is refused with a message saying what to do; the skill need not restate any of it.
+## Done
 
-## What to record
+`search` by its words, `types: ["task"]`, `details: {"status": "open"}`. Then `write`:
 
-- **One entry per event**, such as a payment, an interview, or a reading, never one entry kept current. The Brain holds events, and how things stand now is worked out by reading them in order.
-- **Link every entry to an entity for its subject**, such as the hoard, the company applied to, or the topic researched, so one search by that entity's slug returns the whole set. Record a missing subject through the `entity` skill.
-- **A running answer is a snapshot**, such as a balance or a shortlist, written through the `snapshot` skill at the user's word, with a scope that names the question.
-- **A file is a filed document.** Hand it to the `document` skill, and link the document entry from your own.
-- **A correction is a revision** of the entry that got it wrong, given its id: changed fields replace the entry's, and a body is kept as an amendment under the original, never in place of it.
-- **What the user would want in their journal** goes through the `journal` skill too, linking your entries, so a question about what happened finds it.
+```
+type: task
+version: 1
+entry: <its id>
+body: <when and how it was finished>
+details: {"status": "done"}
+```
 
-## Find and fold
+## List
 
-- **Search by the subject's slug and your type**, `newest_first` for the latest; filter by event dates, or by a `details` field, which matches exactly.
-- **Read only the ids you pick**, a few long entries at a time, and fold them in event-date order, a later entry superseding an earlier one.
-- **A search past the ceiling of 100 hits** fails with event-date ranges to search instead; search each, folding as you go.
-- **Start from a snapshot** where one fits the question, and fold in what was recorded after it.
+`search` with `types: ["task"]`, `details: {"status": "open"}`. `read` the ids, and list each with what it is for and by when.
+````
 
-The `query` skill searches every type, so a question asked without your skill already finds your entries; your skill carries what only it knows, such as how to total a ledger.
-
-## Leave alone
-
-- **The Brain folder's files.** Never write, edit, move, or delete anything in `events/`; the tools are the only writers. Files in `documents/` belong to the `document` skill.
-- **The plugin's install folder**, which every update replaces.
-- **The document skill's script.** It is given folders only the plugin's own skills are told, so hand files to `document` rather than calling it.
+Then: *"Add a task: re-trim the hovercart's left hover jets before the October float inspection."*
