@@ -345,6 +345,7 @@ BUDGET_TRACKER = "moonbeam-budget-tracker.zsheet"
 BUDGET_ADDRESS = r'"address"\s*:\s*"https://sheets\.zorblax\.invalid/d/7Qx2mB9kLr'
 COIL_CERTIFICATE = "2026-08-05-coil-warranty-certificate.txt"
 COIL_CERTIFICATE_BYTES = ELSEWHERE[COIL_CERTIFICATE].encode()
+CERTIFICATE_ADDRESS = r'"address"\s*:\s*"[^"]*elsewhere/' + COIL_CERTIFICATE.replace(".", r"\.")
 
 
 POINTERS = [
@@ -358,26 +359,23 @@ POINTERS = [
               "PASS if the reply says the file only points to a spreadsheet kept elsewhere that could not be"
               " reached, and asks the user what it holds. FAIL if it says the file was filed or recorded.")},
          inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
-    Case("pointer-with-what-it-holds", ["write", "documents", "pointer"],
+    Case("pointer-with-what-it-holds", ["write", "documents", "pointer", "bash"],
          f"File inbox/{BUDGET_TRACKER} in the Brain. It's the Moonbeam budget tracker Prof. Quibblesworth"
          " keeps; it shows $38,200 of the $55,000 spent as of today.",
          {"document-fired": skill("document"),
-          "nothing-filed": filed("**/*budget*", exists=False),
-          "no-document-entry": never_write(holds("type", "document")),
-          "pointer-left": left(BUDGET_TRACKER),
-          "journal-with-its-address": write(NEW, JOURNAL, BUDGET_ADDRESS, "38,200", links("project-moonbeam"))},
+          "filed-with-the-budget-sheet": filed("work/project-moonbeam/**/*budget*"),
+          "its-entry": write(NEW, holds("type", "document"), holds("sha256", sha256(INBOX[BUDGET_TRACKER].encode())),
+                             BUDGET_ADDRESS, "38,200", links("project-moonbeam"))},
          inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
     Case("pointer-to-a-file-here", ["write", "documents", "pointer", "bash"],
          "File inbox/coil-warranty.url in the Brain.",
          {"document-fired": skill("document"),
           "filed-beside-the-coil-invoice": filed("vehicles/glidemaster-hovercart/service/*warranty*"),
-          "its-entry": write(NEW, holds("type", "document"), holds("sha256", sha256(COIL_CERTIFICATE_BYTES)),
+          "its-entry": write(NEW, holds("type", "document"), CERTIFICATE_ADDRESS, "2028",
                              r'"path"\s*:\s*"vehicles/glidemaster-hovercart/service/', links("glidemaster-hovercart")),
-          "copied-not-moved": shell(r"documents\.py", r"\bstore\b", COIL_CERTIFICATE.replace(".", r"\."),
-                                    r"(?!.*--move)"),
-          "original-never-removed": shell(COIL_CERTIFICATE.replace(".", r"\."),
-                                          r"(?:--move|\brm\b|\bdel\b|\bmv\b|Remove-Item|Move-Item)", min=0, max=0),
-          "pointer-left": left("coil-warranty.url")},
+          "what-it-names-never-filed": shell(r"\bstore\b", COIL_CERTIFICATE.replace(".", r"\."), min=0, max=0),
+          "what-it-names-never-removed": shell(COIL_CERTIFICATE.replace(".", r"\."),
+                                               r"(?:\brm\b|\bdel\b|\bmv\b|Remove-Item|Move-Item)", min=0, max=0)},
          inbox={"coil-warranty.url": INBOX["coil-warranty.url"].encode()},
          files={f"elsewhere/{COIL_CERTIFICATE}": COIL_CERTIFICATE_BYTES}),
 ]
