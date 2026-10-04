@@ -22,7 +22,7 @@ python -m venv .venv
 .venv/Scripts/python -m pytest
 ```
 
-On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request runs the same tests on Windows, Linux, and macOS, and cannot merge until they pass.
+On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request, and every push to `main`, runs the same tests on Windows, Linux, and macOS, on Python 3.11 and 3.14, and a pull request cannot merge until they pass.
 
 The [evals](evals.md) test the whole plugin played through a model, against a fictional Brain. They cost model calls, so they run on demand rather than on every pull request.
 

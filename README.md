@@ -6,7 +6,7 @@ AI.Brain gives Claude a journal to keep. Claude records whatever you tell it, fi
 
 ## What it does
 
-- **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it, and offers to record something worth keeping that you mention in passing.
+- **Captures what happens.** Tell Claude in your own words, in as much detail as you have. It asks follow-up questions to fill in what is missing, then records it. Something you mention in passing that you took part in is recorded too, and what you only saw or plan is offered first.
 - **Files your documents.** Hand over a document or a folder of them. Each is moved into a folder structure organized for you to browse yourself, and recorded with what it says.
 - **Answers from the record.** What happened, what was decided, how things stand now, what changed, and when. Answers are short, and the detail is there when you ask for it.
 - **Keeps corrections honest.** Nothing is ever edited away. A correction is recorded beside the original, and every later answer reflects it.
@@ -78,7 +78,6 @@ AI.Brain is in development.
 - [The MCP server](docs/mcp-server.md): how Claude reaches the Brain, and how the plugin prepares the machine to run it.
 - [Custom workflows](docs/workflows.md): using the Brain from a workflow of your own.
 - [Development](docs/development.md): running the tests and the plugin from a working copy.
-- [Work](docs/work/): what is being built, and the choices already settled for it.
 - [Ideas](docs/ideas/): what might be worth doing, with no commitment.
 
 ## License

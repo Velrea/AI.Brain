@@ -8,8 +8,9 @@ The Brain is a knowledge store. A workflow of your own, such as a research metho
 | --- | --- |
 | A person, company, place, thing, or topic you keep coming back to | `entity` |
 | Something that happened, or something you found | `journal`, linked to what it is about |
-| An answer you keep current, such as a profile or a shortlist | `snapshot` |
-| A file, or a link to content kept elsewhere | `document` |
+| An answer worth keeping, such as a profile or a shortlist | `snapshot`, taken afresh each time |
+| A file, including one that only points to content kept elsewhere | `document` |
+| A web page | `journal`, with its address |
 
 `query` answers from all of it.
 
@@ -42,7 +43,7 @@ when_to_use: "The user asks to scout, find, or vet dragon breeders."
 1. Search the breeder registries and the forums for breeders taking new clients.
 2. For each breeder: record it with `entity` if the Brain has no entry for it yet.
 3. Find who runs it, how long it has bred, and what its customers say. Record the findings with `journal`, linked to the breeder.
-4. Update the shortlist with `snapshot`, linked to every breeder on it.
+4. Record a fresh snapshot of the shortlist with `snapshot`, linked to every breeder on it.
 ```
 
 ### Keep a ledger for a market day
@@ -75,5 +76,5 @@ when_to_use: "The user asks how the moonberry harvest is going, or to check on i
 1. `query` the Brain for the latest snapshot of the harvest, and what was recorded since.
 2. Check the growers' reports and the market prices for anything newer.
 3. Record what is new with `journal`, linked to the moonberry harvest entity.
-4. Update the current outlook with `snapshot`, and say what changed.
+4. Record a fresh snapshot of the outlook with `snapshot`, and say what changed.
 ```

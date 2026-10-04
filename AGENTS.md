@@ -4,3 +4,6 @@
 - Tests live under `tests/`, never under `plugin/`.
 - The plugin's entry in `.claude-plugin/marketplace.json` carries only the name and the source.
 - Run the plugin under development with `claude --plugin-dir plugin`, not from a marketplace install.
+- Only `plugin/server/serve.py` may import a third-party package. The core module, the launcher, `folders.py`, and skill scripts run outside the pinned environment and use the standard library only.
+- Never edit `plugin/requirements.txt` by hand. Change `plugin/requirements.in` and recompile it as `docs/development.md` says.
+- The launcher and the server write nothing to stdout, which is the server's channel to its host; diagnostics go to stderr.
