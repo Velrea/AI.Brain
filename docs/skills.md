@@ -15,7 +15,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 | [`journal`](../plugin/skills/journal/SKILL.md) | `journal` | records an event as a journal entry, or corrects one, and decides unprompted whether an event deserves one |
 | [`entity`](../plugin/skills/entity/SKILL.md) | `entity` | records a subject entries are about, adds a name to one, or merges two that turn out to be one |
 | [`snapshot`](../plugin/skills/snapshot/SKILL.md) | `snapshot` | records a folded answer, at the user's word |
-| [`document`](../plugin/skills/document/SKILL.md) | `document` | files a document into the Brain's documents, records it as a document entry, and has `journal` record the capture |
+| [`document`](../plugin/skills/document/SKILL.md) | `document` | files a document into the Brain's documents, records it as a document entry, and has `journal` record the capture; and checks documents already filed against their entries |
 | [`query`](../plugin/skills/query/SKILL.md) | | answers a question from what was recorded, by searching, reading, and folding the entries that bear on it |
 
 ## Journal
@@ -24,13 +24,14 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 - **Unprompted, it judges whether the user was a party to the event and whether it has happened**, not how important it seems. A party's account of something done is recorded; an observation, an intention, or something found is offered first; the session's own work is never recorded.
 - **It asks only where a reader later could not follow what happened.** An entry is permanent, so what the account depends on and leaves out or leaves unclear goes to the user before it is written, and a date, name, or figure is never guessed. Detail the account could hold but does not need is never asked for: asked to record a simple event, a model that went on to ask for every detail a long entry might hold recorded nothing.
-- **The newest entry it reads is one on the same subject**, found by the subject's slug, so the search stays small: the newest of every journal entry is a search past the ceiling in a Brain of any size.
+- **The newest entry it reads is one on the same subject**, found by the subject's slug, so the search stays small: the newest of every journal entry is a search past the ceiling once the Brain holds more than 100 journal entries.
 - **The description is written for triage**, such as "Oil change at 48k, rear brakes flagged as worn" rather than "Oil change". A search returns only lean hits, so the description decides whether an entry is read, and it is written once, by a model looking at that entry alone.
 - **The slug is the date and a few words**, so it reads as the event it names.
 - **Subjects are found before writing**, every one at once by a search by names, including the broad subject an entry falls under, so a question about the whole subject finds it. The entry links to each, and to an earlier entry it follows on from; a subject with no match is recorded through `entity`.
 - **A correction and new information are separate writes.** A correction fixes what an entry recorded wrong and revises that entry; new information about the same story is a new entry on its own date, linking to the one it follows on from. One account that carries both produces both. Telling the parts apart means reading the whole account against the entry, which takes judgment, so the skill does it and no tool can.
 - **An entry keeps every link or reference to where more of its account lives**, so a later query can follow it.
 - **Captured documents get a journal entry** recording what they say, summarized, and what surrounds them, linking to each document entry; documents about one event share it.
+- **A secret is never written in full**: an entry records that a code or password changed, never its value.
 - **A web page is recorded with its address**, as `address` in the entry's details. It can change, so a later reading is a new entry, never an amendment, and a search by that address finds every reading of it, each dated by when it was read.
 
 ## Entity
@@ -39,7 +40,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 - **It searches before it records**, by every name the subject goes by, and asks about a match that is plausible but uncertain: a wrong match merges two real things, and a needless new entity splits one.
 - **Another name is an alias**, added by a revision, so a search by that name finds it.
-- **A merge is one revision**, adding the other's slug and names to the one kept, and only at the user's word unless they asked for it.
+- **A merge is one revision**, only at the user's word: it keeps the subject more entries link to, and adds the other's slug and names to it.
 
 ## Snapshot
 
@@ -89,9 +90,9 @@ The skill's file work is done by [`documents.py`](../plugin/skills/document/scri
 - **Contents already recorded are refused.** Before filing, the script hashes the file and searches, through the core module and the same index the server reads, for a document entry naming that `sha256`; one found means the document is filed already, and the refusal says where and which entry records it, leaving the original where it was. Contents filed but not yet recorded, as a crash between filing and writing leaves them, file again as they are, so the entry can still be written.
 - **A path keeps its contents.** Filing the same contents at a path again returns it as it is, and filing others there is refused, so a pointer to a document never comes to point at something else.
 - **A file already in `documents/` is never filed again.** Filing it would copy it, or, moved, leave the entries naming it pointing at nothing, so the refusal says to check it instead.
-- **Checking compares the documents with the entries.** It hashes every document at a folder, at one document, or in all of `documents/`, and compares them with every document entry, found by a search for the type, split by event-date ranges where one search would pass the ceiling. A document whose contents differ from its entry's `sha256` is changed; an entry whose document is gone is moved when the same contents sit at a path no entry names, and missing otherwise; and a document no entry names is unrecorded. The check is the script's, not `read`'s, since the core module knows no type of entry. It reads every document it checks whole, which in a synced folder of cloud placeholders downloads each one, so the skill checks no more than it is asked to.
-- **An original that cannot be removed** is reported after the document is filed, with its path and `sha256`, so the entry can still name it.
+- **Checking compares the documents with the entries.** It hashes every document at a folder, at one document, or in all of `documents/`, and compares them with the document entries whose `path` lies in what is checked, found by a search for the type, split by event-date ranges where one search would pass the ceiling; more document entries on one date than a search returns cannot be checked. A document whose contents differ from its entry's `sha256` is changed; an entry whose document is gone is moved when the same contents sit at a path no entry names, and missing otherwise; and a document no entry names is unrecorded. A move is found only when both its paths lie in what is checked, so a check of the folder a document left reports it missing, and of the folder it arrived in, unrecorded. The check is the script's, not `read`'s, since the core module knows no type of entry. It reads every document it checks whole, which in a synced folder of cloud placeholders downloads each one, so the skill checks no more than it is asked to.
+- **An original that cannot be removed** is reported as an error after the document is filed, naming its path and `sha256`, so the entry can still name it.
 - **The copy is whole or absent.** It is written beside its path, synced to disk, and renamed into place, so a sync service never carries a part-written document. The original's modified time is kept where the folder allows it.
-- **Paths are plain.** A path is relative, with `/` between folders, and no name in it is empty, `.` or `..`, ends in a dot or a space, holds a character Windows forbids, or is a name Windows keeps for a device, so a document filed on one machine can be synced to any other.
+- **Paths are plain.** A path is relative, with `/` between folders, and no name in it is empty, `.` or `..`, starts or ends with a space, ends in a dot, holds a character Windows forbids, or is a name Windows keeps for a device, so a document filed on one machine can be synced to any other.
 - **The Brain folder must exist**, so a sync folder that is not mounted never quietly becomes a new, empty Brain.
 

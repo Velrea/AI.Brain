@@ -2,8 +2,8 @@
 
 The files are the Brain; the index is a projection of them, kept in the
 machine's plugin data folder and never synced. It holds nothing the files do not:
-missing, corrupt, or built by another version, it is deleted and rebuilt from
-them. Every read catches it up first, taking in only the complete lines each
+missing, it is built from them. Nothing here ever deletes it: one that is damaged
+is reported, never removed. Every read catches it up first, taking in only the complete lines each
 file has gained since, so a sealed file is read once in its life.
 
 A correction is applied once, when it arrives: the index keeps every record,
@@ -22,10 +22,6 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from .format import REVISABLE, brain_key, events_dir, is_event_file
-
-VERSION = 1
-"""The index's own layout. A change names a new file, so sessions running two
-versions of the plugin never rebuild each other's index."""
 
 BUSY_TIMEOUT = 30.0
 """Seconds a session waits for another to finish taking in a file."""
@@ -96,9 +92,14 @@ _SCHEMA = (
     END""",
 )
 
+_SCHEMA_NAMES = frozenset(
+    statement.split(" IF NOT EXISTS ", 1)[1].split()[0] for statement in _SCHEMA
+)
+"""What the schema creates, by name, to tell whether an index already holds it all."""
+
 
 class IndexUnavailable(RuntimeError):
-    """This Python's SQLite cannot hold the index."""
+    """This Python's SQLite cannot hold the index, or the index file is damaged."""
 
 
 class FileHeld(OSError):
@@ -114,7 +115,7 @@ class Index:
         self.events = events_dir(brain_dir)
         self.data_dir = Path(data_dir)
         self.key = brain_key(brain_dir)
-        self.path = self.data_dir / f"{self.key}.index-v{VERSION}.sqlite"
+        self.path = self.data_dir / f"{self.key}.index.sqlite"
         self.busy_timeout = busy_timeout
 
     @contextlib.contextmanager
@@ -126,9 +127,11 @@ class Index:
         except sqlite3.DatabaseError as error:
             if getattr(error, "sqlite_errorcode", None) not in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB):
                 raise
-            # Corrupt: the index holds nothing the files do not, so it is built afresh.
-            self._delete()
-            con = self._caught_up()
+            # Never deleted here: the user decides what becomes of a damaged index.
+            raise IndexUnavailable(
+                f"the index at {str(self.path)!r} is damaged. It holds nothing the event files do"
+                f" not, so once it is moved or removed by hand the next read builds it afresh"
+            ) from error
         try:
             yield con
         finally:
@@ -145,7 +148,6 @@ class Index:
 
     def _open(self) -> sqlite3.Connection:
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        new = not self.path.exists()
         con = sqlite3.connect(self.path, timeout=self.busy_timeout, isolation_level=None)
         try:
             # Sessions read while another takes in a file. The index can be rebuilt, so a
@@ -154,16 +156,15 @@ class Index:
             con.execute("PRAGMA synchronous = NORMAL")
             # Taking in a file inserts across several B-trees at once; SQLite's 2 MB default thrashes.
             con.execute(f"PRAGMA cache_size = -{CACHE_KB}")
-            if con.execute("PRAGMA user_version").fetchone()[0] != VERSION:
+            # Every statement in the schema only creates what is missing, so an index any
+            # version of the plugin built gains what this one needs and loses nothing.
+            if _missing(con):
                 with _transaction(con):
                     for statement in _SCHEMA:
                         con.execute(statement)
-                    con.execute(f"PRAGMA user_version = {VERSION}")
         except BaseException:
             con.close()
             raise
-        if new:
-            self._delete_other_versions()
         return con
 
     def _until_free(self, attempt) -> None:
@@ -228,16 +229,6 @@ class Index:
                 (name, offset + end),
             )
 
-    def _delete(self) -> None:
-        for suffix in ("", "-wal", "-shm"):
-            Path(f"{self.path}{suffix}").unlink(missing_ok=True)
-
-    def _delete_other_versions(self) -> None:
-        """Clears the index files older or newer versions left, where no session holds them."""
-        for path in self.data_dir.glob(f"{self.key}.index-v*.sqlite*"):
-            if not path.name.startswith(self.path.name):
-                with contextlib.suppress(OSError):
-                    path.unlink()
 
 
 @functools.cache
@@ -288,6 +279,12 @@ def _read_from(path: Path, offset: int) -> bytes | None:
                 ) from error
             time.sleep(delay)
             delay = min(delay * 2, 1.0)
+
+
+def _missing(con: sqlite3.Connection) -> bool:
+    """Whether the index lacks a table, index, or trigger the schema creates."""
+    have = {name for (name,) in con.execute("SELECT name FROM sqlite_master")}
+    return not _SCHEMA_NAMES <= have
 
 
 def _lost(listed: dict[str, int], taken: dict[str, int]) -> bool:

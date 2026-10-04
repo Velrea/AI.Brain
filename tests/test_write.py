@@ -83,6 +83,28 @@ def test_a_file_that_reaches_the_line_limit_is_left_for_a_new_one(writer, brain_
     assert sorted(len(records_of(f)) for f in event_files(brain_dir)) == [1, 3, 3]
 
 
+def test_sessions_sharing_a_machine_keep_one_active_file_through_every_roll(brain_dir, data_dir):
+    code = """
+import sys
+from pathlib import Path
+import brain.write
+from brain.write import Writer
+brain.write.ROLL_LINES = 6
+writer = Writer(Path(sys.argv[1]), Path(sys.argv[2]))
+for n in range(10):
+    writer.write(type="journal", version=1, slug=f"{sys.argv[3]}-{n}", event_date="2026-09-14",
+                 description="d", body="b")
+"""
+    sessions = [python(code, str(brain_dir), str(data_dir), f"session-{n}") for n in range(4)]
+    for session in sessions:
+        assert session.wait(60) == 0, session.stderr.read()
+
+    files = [[record["id"] for record in records_of(path)] for path in event_files(brain_dir)]
+    assert [len(ids) for ids in files] == [6] * 6 + [4]
+    # One file is open at a time: every id in a file is earlier than every id in the next.
+    assert all(max(earlier) < min(later) for earlier, later in zip(files, files[1:]))
+
+
 def test_a_file_seven_days_old_is_left_for_a_new_one(brain_dir, data_dir):
     clock = Clock()
     writer = Writer(brain_dir, data_dir, clock=clock)
