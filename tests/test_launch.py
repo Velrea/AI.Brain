@@ -66,3 +66,14 @@ def test_the_launch_script_finds_python_and_passes_its_arguments_and_exit_code()
     assert done.returncode == 2
     assert done.stdout == ""
     assert "unknown command 'bogus'" in done.stderr
+
+
+def test_a_data_folder_inside_the_brain_folder_is_refused_before_anything_is_built(tmp_path, monkeypatch, capsys):
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    monkeypatch.setenv("BRAIN_DATA_DIR", str(brain / "data"))
+
+    assert main(["launch.py", "prepare"]) == 1
+    assert "inside the Brain folder" in capsys.readouterr().err
+    assert not (brain / "data").exists()

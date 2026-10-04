@@ -1,6 +1,7 @@
 import builtins
 import datetime as dt
 import shutil
+import sqlite3
 
 import pytest
 
@@ -196,14 +197,45 @@ def test_a_file_that_vanishes_rebuilds_the_index(writer, other_machine, reader, 
     assert [hit.description for hit in reader.search()] == ["ours"]
 
 
-def test_a_corrupt_index_is_rebuilt(writer, reader):
+def test_a_damaged_index_is_reported_and_never_deleted(writer, reader):
     writer.write(**entry(description="kept"))
     reader.search()
-    reader.index.path.write_bytes(b"not a database" * 1000)
+    damaged = b"not a database" * 1000
+    reader.index.path.write_bytes(damaged)
     for suffix in ("-wal", "-shm"):
         (reader.index.path.parent / (reader.index.path.name + suffix)).unlink(missing_ok=True)
 
+    with pytest.raises(brain.index.IndexUnavailable, match="damaged"):
+        reader.search()
+    assert reader.index.path.read_bytes() == damaged
+
+    reader.index.path.unlink()
     assert [hit.description for hit in reader.search()] == ["kept"]
+
+
+def test_the_index_file_carries_no_version_and_leaves_every_other_file_alone(writer, reader, data_dir):
+    stray = data_dir / f"{reader.index.key}.index-v1.sqlite"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"an index another version left")
+    writer.write(**entry(description="kept"))
+
+    assert [hit.description for hit in reader.search()] == ["kept"]
+    assert reader.index.path.name == f"{reader.index.key}.index.sqlite"
+    assert stray.read_bytes() == b"an index another version left"
+
+
+def test_an_index_missing_part_of_the_schema_gains_it_and_keeps_its_rows(writer, reader):
+    writer.write(**entry(description="kept"))
+    reader.search()
+    con = sqlite3.connect(reader.index.path)
+    con.execute("DROP INDEX entries_slug")
+    con.close()
+
+    assert [hit.description for hit in reader.search()] == ["kept"]
+    con = sqlite3.connect(reader.index.path)
+    assert con.execute("SELECT 1 FROM sqlite_master WHERE name = 'entries_slug'").fetchone()
+    assert con.execute("SELECT count(*) FROM files").fetchone()[0] == 1
+    con.close()
 
 
 def test_an_index_caught_up_file_by_file_answers_as_one_rebuilt(writer, other_machine, reader, brain_dir, tmp_path):

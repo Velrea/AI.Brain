@@ -27,7 +27,7 @@ The core module knows no type of entry. Every entry has the same shape, a name, 
 <plugin data folder>/          this machine's own, never synced
   <key>.lock                   the lock file
   <key>.json                   the file this machine appends to, its line count, and its last id's time
-  <key>.index-v1.sqlite        the local index
+  <key>.index.sqlite           the local index
 ```
 
 The Brain folder's events are in one flat `events/` folder. Each file is named `h-<uuidv7>.jsonl` for the time it was started, and only the machine that created it ever appends to it. A sync service copies whole files between machines, so two machines appending to one file would each overwrite the other's lines; with one owner per file, that never happens, and no machine is named in the layout. The plugin data folder is never synced: the lock coordinates only this machine, the current file is this machine's alone, and the index is built here from the files. `<key>` is a hash of the Brain folder's path, so two Brains on one machine never share a lock, a current file, or an index. The caller hands the `Writer` and the `Reader` both folders; the MCP server supplies the plugin data folder.
@@ -104,7 +104,7 @@ Reading knows no type: `Reader` finds and returns entries of every type the same
 
 ### The local index
 
-Every read comes from a SQLite database this machine keeps in its plugin data folder, built from the files and caught up with them before each read. The files stay the Brain, and the index is a disposable projection of them: it holds nothing they do not, and an index that is missing, corrupt, or built by another version is deleted and rebuilt from them. It makes a read a lookup instead of a scan of every file, and it lets a correction be applied once, when it arrives, instead of on every read. It is never in the synced folders: a sync service copying a database mid-write corrupts it, and two machines would fork it into conflict copies. Reading never writes the Brain folder.
+Every read comes from a SQLite database this machine keeps in its plugin data folder, built from the files and caught up with them before each read. The files stay the Brain, and the index is a disposable projection of them: it holds nothing they do not, and an index that is missing is built from them. Nothing in the plugin ever deletes it: a damaged index raises `IndexUnavailable`, naming the file, and stays where it is until someone moves or removes it by hand. It makes a read a lookup instead of a scan of every file, and it lets a correction be applied once, when it arrives, instead of on every read. It is never in the synced folders: a sync service copying a database mid-write corrupts it, and two machines would fork it into conflict copies. Reading never writes the Brain folder.
 
 ```mermaid
 flowchart LR
@@ -124,7 +124,7 @@ flowchart LR
 - **Settling.** The index keeps every record, and beside them each entry as it stands now: its original with its [revisions](#revisions) applied, and the entry it is merged into, if any. Only revisions collapse: every entry is its own row, and the files keep every record.
 - **A file that vanishes or shrinks** rebuilds the index, since it cannot tell which of its rows came only from that file.
 - **A file another process holds open without sharing reads**, as a program can on Windows, is retried with backoff for up to 10 seconds, then raises `FileHeld`, naming the file. Nothing is answered without it and its offset never moves past what was read, so once it is released it is taken in whole. A write checks against the index first, so it fails the same way, writing nothing. Most programs that hold a file share reads, and then only an append waits, as [a blocked file](#writing) says.
-- **Sessions.** Sessions on one machine share the index. Its write-ahead log lets them read while another takes in a file, and one waits up to 30 seconds for another to finish taking in. A change to the index's own layout names a new file, so two versions of the plugin never read or corrupt each other's index. A version that creates its file deletes the other versions' files that no session holds open.
+- **Sessions.** Sessions on one machine share the index. Its write-ahead log lets them read while another takes in a file, and one waits up to 30 seconds for another to finish taking in. There is one index file for each Brain, whatever version of the plugin built it. Opening it creates whatever table, index, or trigger it lacks and changes nothing it holds, so every version of the plugin shares it.
 - **SQLite is Python's own**, so the plugin pins no database package. It must include FTS5 full-text search and JSON, as the builds from python.org and most Linux distributions do; without them a read raises `IndexUnavailable`.
 
 ### Search and read
