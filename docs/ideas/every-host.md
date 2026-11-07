@@ -24,7 +24,7 @@ The Brain installs as a plugin on every agent host that takes one: Claude Code, 
 1. **At install, where the host asks.** Claude asks for `brain_folder` when the plugin is enabled, and Cursor for its `brain_folder` variable; each reaches the server as `BRAIN_DIR`, as today.
 2. **In the first conversation, where the host asks nothing**, as Codex does. The server starts unconfigured: every tool answers that the Brain is not set up, and to ask the user for its folder. The `configure` tool takes the folder and saves it for that host, in `settings.json` in the data folder, under the host's name. Each host's server config names its host in `BRAIN_HOST`, so a second host on the machine is never configured by the first's answer. Asked again, `configure` changes it.
 
-The folder must exist, as `brain_dir` requires today: a sync folder that is not mounted must not quietly become a new, empty Brain.
+**A folder that does not exist is never created unasked.** A sync folder that is not mounted must not quietly become a new, empty Brain, as `brain_dir` requires today. The server still starts, and every tool answers that the Brain folder does not exist, naming it, and to ask the user whether to create it. Told yes, the model calls `configure` with `create`, which creates the folder and carries on there. Told no, it stops: it says the Brain cannot be used until the folder exists or another is configured, and does nothing more with it.
 
 ## The data folder
 
