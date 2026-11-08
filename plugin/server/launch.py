@@ -5,9 +5,7 @@ library only. `prepare` builds a virtual environment in the plugin data
 folder and installs the pinned packages of `requirements.txt` into it, again
 only when they change. With no argument, it prepares the same way, then
 starts the server in that environment. Nothing goes to stdout, which is the
-server's channel to its host. `run <script> [args]` runs
-a skill's own script, standard library only, on the same Python, so a skill
-reaches Python the same way on every machine; its output is the script's.
+server's channel to its host.
 """
 
 import os
@@ -77,14 +75,8 @@ def _run(command: list[str]) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "serve"
-    if command == "run":
-        # A skill's own script, standard library only, on this machine's Python.
-        if len(argv) < 3:
-            print("Brain: run needs the script to run", file=sys.stderr)
-            return 2
-        return subprocess.run([sys.executable, *argv[2:]]).returncode
     if command not in ("prepare", "serve"):
-        print(f"Brain: unknown command {command!r}; use prepare, run, or none to serve", file=sys.stderr)
+        print(f"Brain: unknown command {command!r}; use prepare, or none to serve", file=sys.stderr)
         return 2
     try:
         data, why = data_dir(None)
@@ -103,7 +95,7 @@ def main(argv: list[str]) -> int:
     if command == "prepare":
         return 0
     print(f"Brain: plugin data folder {data} ({why})", file=sys.stderr)
-    env = os.environ | {"PYTHONPATH": str(PLUGIN), "BRAIN_DATA_DIR": str(data)}
+    env = os.environ | {"PYTHONPATH": str(PLUGIN), "PLUGIN_DATA": str(data)}
     args = [str(python), "-m", "server.serve"]
     if os.name != "nt":
         os.execve(python, args, env)

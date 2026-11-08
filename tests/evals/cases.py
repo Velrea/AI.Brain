@@ -6,9 +6,7 @@ to be recorded, corrected, renamed, merged, kept, or filed, or mention
 something in passing, and their graders check the skill that fired, the
 calls it made with their arguments, and the files it left. Pointers hand over
 a file that only points to content kept elsewhere, and the cases for
-documents filed already change one by hand before the run. A case tagged
-`bash` files documents with the document skill's script, so it needs a
-shell, which an eval run grants only where the host can sandbox it.
+documents filed already change one by hand before the run.
 """
 
 import hashlib
@@ -84,10 +82,10 @@ def filed(glob: str, *, exists: bool = True) -> dict:
     return {"type": "file_exists", "path": f"brain/documents/{glob}"} | ({} if exists else {"exists": False})
 
 
-def shell(*conditions: str, min: int = 1, max: int | None = None) -> dict:
-    """Bash was called, between `min` and `max` times, with a command matching
-    every one of `conditions`."""
-    grader = {"type": "tool_used", "tool": "Bash", "input_match": matching(*conditions)}
+def tool(name: str, *conditions: str, min: int = 1, max: int | None = None) -> dict:
+    """The tool `name` was called, between `min` and `max` times, with arguments
+    matching every one of `conditions`."""
+    grader = {"type": "tool_used", "tool": TOOL + name, "input_match": matching(*conditions)}
     if min != 1:
         grader["min"] = min
     if max is not None:
@@ -96,11 +94,11 @@ def shell(*conditions: str, min: int = 1, max: int | None = None) -> dict:
 
 
 def left(name: str) -> dict:
-    """No shell command names the file `name`, so it stays where the case put it.
+    """The file `name` was never filed, so it stays where the case put it.
 
     A file grader cannot tell: it sees only files created during the run.
     """
-    return shell(name.replace(".", r"\."), min=0, max=0)
+    return tool("store_document", name.replace(".", r"\."), min=0, max=0)
 
 
 def holds(name: str, value: str) -> str:
@@ -309,7 +307,7 @@ COIL_COPY = (seed.BRAIN / "documents" / COIL_INVOICE).read_bytes()
 TRIM_RECEIPT = INBOX["2026-09-24-gizmo-hover-trim-receipt.txt"].encode()
 
 FILING = [
-    Case("file-beside-its-like", ["write", "documents", "bash"],
+    Case("file-beside-its-like", ["write", "documents"],
          "File inbox/2026-09-24-gizmo-hover-trim-receipt.txt in the Brain.",
          {"document-fired": skill("document"),
           "filed-beside-the-coil-invoice": filed("vehicles/glidemaster-hovercart/service/*"),
@@ -317,7 +315,7 @@ FILING = [
                              r'"path"\s*:\s*"vehicles/glidemaster-hovercart/service/', links("glidemaster-hovercart")),
           "journal-records-the-capture": write(NEW, JOURNAL, r'(?=.*"links"\s*:\s*\[[^\]]*"2026-09-24)')},
          inbox={"2026-09-24-gizmo-hover-trim-receipt.txt": TRIM_RECEIPT}),
-    Case("file-a-folder", ["write", "documents", "bash"],
+    Case("file-a-folder", ["write", "documents"],
          "File everything in the inbox folder in the Brain.",
          {"document-fired": skill("document"),
           "letter-with-the-glorp-papers": filed("work/project-moonbeam/**"),
@@ -325,13 +323,13 @@ FILING = [
           "two-entries": write(NEW, holds("type", "document"), min=2, max=2)},
          inbox={name: INBOX[name].encode() for name in ("2026-09-22-glorp-rate-letter.txt",
                                                         "2026-10-01-gnome-dues-receipt.txt")}),
-    Case("refuse-a-duplicate", ["write", "documents", "bash"],
+    Case("refuse-a-duplicate", ["write", "documents"],
          "File inbox/coil-invoice-scan.txt in the Brain.",
          {"document-fired": skill("document"),
           "no-entry": never_write(holds("type", "document")),
           "says-where-it-is": answer(COIL_INVOICE.replace(".", r"\.").rsplit("/", 1)[0])},
          inbox={"coil-invoice-scan.txt": COIL_COPY}),
-    Case("ask-where-nothing-is-like-it", ["write", "documents", "bash"],
+    Case("ask-where-nothing-is-like-it", ["write", "documents"],
          "File inbox/telescope-warranty.txt in the Brain.",
          {"document-fired": skill("document"),
           "nothing-filed-yet": filed("**/*telescope*", exists=False),
@@ -359,7 +357,7 @@ POINTERS = [
               "PASS if the reply says the file only points to a spreadsheet kept elsewhere that could not be"
               " reached, and asks the user what it holds. FAIL if it says the file was filed or recorded.")},
          inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
-    Case("pointer-with-what-it-holds", ["write", "documents", "pointer", "bash"],
+    Case("pointer-with-what-it-holds", ["write", "documents", "pointer"],
          f"File inbox/{BUDGET_TRACKER} in the Brain. It's the Moonbeam budget tracker Prof. Quibblesworth"
          " keeps; it shows $38,200 of the $55,000 spent as of today.",
          {"document-fired": skill("document"),
@@ -367,15 +365,13 @@ POINTERS = [
           "its-entry": write(NEW, holds("type", "document"), holds("sha256", sha256(INBOX[BUDGET_TRACKER].encode())),
                              BUDGET_ADDRESS, "38,200", links("project-moonbeam"))},
          inbox={BUDGET_TRACKER: INBOX[BUDGET_TRACKER].encode()}),
-    Case("pointer-to-a-file-here", ["write", "documents", "pointer", "bash"],
+    Case("pointer-to-a-file-here", ["write", "documents", "pointer"],
          "File inbox/coil-warranty.url in the Brain.",
          {"document-fired": skill("document"),
           "filed-beside-the-coil-invoice": filed("vehicles/glidemaster-hovercart/service/*warranty*"),
           "its-entry": write(NEW, holds("type", "document"), CERTIFICATE_ADDRESS, "2028",
                              r'"path"\s*:\s*"vehicles/glidemaster-hovercart/service/', links("glidemaster-hovercart")),
-          "what-it-names-never-filed": shell(r"\bstore\b", COIL_CERTIFICATE.replace(".", r"\."), min=0, max=0),
-          "what-it-names-never-removed": shell(COIL_CERTIFICATE.replace(".", r"\."),
-                                               r"(?:\brm\b|\bdel\b|\bmv\b|Remove-Item|Move-Item)", min=0, max=0)},
+          "what-it-names-never-filed": left(COIL_CERTIFICATE)},
          inbox={"coil-warranty.url": INBOX["coil-warranty.url"].encode()},
          files={f"elsewhere/{COIL_CERTIFICATE}": COIL_CERTIFICATE_BYTES}),
 ]
@@ -385,11 +381,11 @@ BUDGET_SHEET_EDITED = (seed.BRAIN / "documents" / BUDGET_SHEET).read_bytes().rep
     b"Freight: $2,700\nSpent: $31,400", b"Freight: $2,700\nSecond lens: $4,600\nSpent: $36,000")
 GNOME_NOTICE = "home/wobblestone-cottage/gnome-association/2026-09-02-gnome-height-notice.txt"
 GNOME_NOTICE_MOVED = "home/wobblestone-cottage/2026-09-02-gnome-height-notice.txt"
-CHECKED = shell(r"documents\.py", r"\bcheck\b")
+CHECKED = tool("check_documents", ".*")
 NO_NEW_DOCUMENT = never_write(NEW, holds("type", "document"))
 
 FILED_ALREADY = [
-    Case("record-an-edited-document", ["write", "documents", "bash"],
+    Case("record-an-edited-document", ["write", "documents"],
          "I updated the Moonbeam budget sheet in the Brain's documents. Record the change.",
          {"document-fired": skill("document"),
           "checked": CHECKED,
@@ -397,7 +393,7 @@ FILED_ALREADY = [
                                              holds("sha256", sha256(BUDGET_SHEET_EDITED))),
           "no-new-document-entry": NO_NEW_DOCUMENT},
          files={f"brain/documents/{BUDGET_SHEET}": BUDGET_SHEET_EDITED}),
-    Case("check-the-documents", ["write", "documents", "bash"],
+    Case("check-the-documents", ["write", "documents"],
          "Check my filed documents for anything that changed.",
          {"document-fired": skill("document"),
           "checked": CHECKED,

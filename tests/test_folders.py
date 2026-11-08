@@ -161,24 +161,24 @@ def test_a_git_bash_drive_is_read_as_its_windows_drive():
     assert host_path("/data/Brain").drive == ""
 
 
-def test_the_data_folder_is_brain_data_dir(tmp_path):
-    assert data_dir(None, {"BRAIN_DATA_DIR": str(tmp_path / "data")}) == ((tmp_path / "data").resolve(), "from BRAIN_DATA_DIR")
+def test_the_data_folder_is_plugin_data(tmp_path):
+    assert data_dir(None, {"PLUGIN_DATA": str(tmp_path / "data")}) == ((tmp_path / "data").resolve(), "from PLUGIN_DATA")
 
 
 @pytest.mark.parametrize("value", ["", "${PLUGIN_DATA}"])
-def test_an_unset_or_unexpanded_brain_data_dir_is_the_users_own_folder(tmp_path, value):
-    path, why = data_dir(None, {"BRAIN_DATA_DIR": value, "LOCALAPPDATA": str(tmp_path), "XDG_DATA_HOME": str(tmp_path)})
-    assert path.name in ("AI.Brain", "ai-brain") and why == "BRAIN_DATA_DIR is not set"
+def test_an_unset_or_unexpanded_plugin_data_is_the_users_own_folder(tmp_path, value):
+    path, why = data_dir(None, {"PLUGIN_DATA": value, "LOCALAPPDATA": str(tmp_path), "XDG_DATA_HOME": str(tmp_path)})
+    assert path.name in ("AI.Brain", "ai-brain") and why == "PLUGIN_DATA is not set"
 
 
-def test_with_no_brain_data_dir_the_data_folder_is_the_users_own(home):
+def test_with_no_plugin_data_the_data_folder_is_the_users_own(home):
     path, why = data_dir(None, {"LOCALAPPDATA": str(home / "Local"), "XDG_DATA_HOME": str(home / "share")})
     assert path.name in ("AI.Brain", "ai-brain") and path.is_relative_to(home)
-    assert why == "BRAIN_DATA_DIR is not set"
+    assert why == "PLUGIN_DATA is not set"
 
 
 def test_a_data_folder_inside_the_brain_or_the_plugin_is_refused(tmp_path):
     with pytest.raises(FolderError, match="inside the Brain folder"):
-        data_dir(tmp_path, {"BRAIN_DATA_DIR": str(tmp_path / "state")})
+        data_dir(tmp_path, {"PLUGIN_DATA": str(tmp_path / "state")})
     with pytest.raises(FolderError, match="inside the plugin's install folder"):
-        data_dir(None, {"BRAIN_DATA_DIR": str(PLUGIN / "data")})
+        data_dir(None, {"PLUGIN_DATA": str(PLUGIN / "data")})

@@ -1,0 +1,20 @@
+{
+  "name": "ai-brain",
+  "interface": {
+    "displayName": "AI.Brain"
+  },
+  "plugins": [
+    {
+      "name": "brain",
+      "source": {
+        "source": "local",
+        "path": "./plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # The core module
 
-The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent writes them only through [the MCP server](mcp-server.md), which calls this package, and a skill's own script, such as the document skill's, may read them through `Reader` directly. Reading goes through [a local index](#the-local-index) each machine builds from the files and keeps for itself. The tests in [`tests/`](../tests/) drive it directly, with no server.
+The Python package in [`plugin/brain/`](../plugin/brain/) is the Brain's low-level interface to its data. It defines the shape of a record and the layout of the folders, and it holds the write path and the read path. Nothing else writes the files: an agent writes them only through [the MCP server](mcp-server.md), which calls this package. Reading goes through [a local index](#the-local-index) each machine builds from the files and keeps for itself. The tests in [`tests/`](../tests/) drive it directly, with no server.
 
 A Brain is an append-only log of entries. It holds events, never current state; how things stand now is worked out by reading the entries in order. A record is never edited, and a correction is a new record.
 
-The core module knows no type of entry. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry, an entity, or a filed document, is defined by [the skill](skills.md) that writes it. So a new type needs no change here or to the server. Work a skill needs beyond writing and reading entries, such as filing a document's file, is done by the skill's own script.
+The core module knows no type of entry. Every entry has the same shape, a name, and links to other entries, and what a type means, such as a journal entry, an entity, or a filed document, is defined by [the skill](skills.md) that writes it. So a new type needs no change here or to the server. Filing is the one exception: `documents.py` files a document's file into `documents/` and checks the documents against the entries of type `document`, work on files that no entry write does.
 
 | Module | Holds |
 | --- | --- |
@@ -13,6 +13,7 @@ The core module knows no type of entry. Every entry has the same shape, a name, 
 | [`index.py`](../plugin/brain/index.py) | The local index: the SQLite database this machine keeps of the files, caught up before every read. |
 | [`read.py`](../plugin/brain/read.py) | `Reader`, the one read for every type: search, and entries by id. It reads through the index, which imports the file format, and never imports the write path. |
 | [`lock.py`](../plugin/brain/lock.py) | The OS lock that makes sessions on one machine take turns. |
+| [`documents.py`](../plugin/brain/documents.py) | `Documents`, filing a document into `documents/`, listing a folder of it, and checking it against the document entries, which it finds through `Reader`. |
 
 ## Folders
 
@@ -21,7 +22,7 @@ The core module knows no type of entry. Every entry has the same shape, a name, 
   events/
     h-0199a8c4-….jsonl         sealed: its machine has moved on
     h-0199f02e-….jsonl         open: its machine appends here
-  documents/                   the filed documents, kept by the document skill
+  documents/                   the filed documents, kept by documents.py
     assets/blue-hatchback/service/2026-09-14-oil-change-invoice.pdf
 
 <plugin data folder>/          this machine's own, never synced

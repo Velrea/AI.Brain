@@ -19,7 +19,7 @@ The Brain installs as a plugin on every agent host that takes one: Claude Code, 
 
 **An install shares nothing with another but the Brain folder.** Each keeps its own data folder, the one its host gives it, holding its own settings, environment, lock, current file, and index. Claude and Codex installed on one machine and pointed at one Brain behave exactly as two machines sharing that Brain through a sync service: each appends to its own active file and rolls it on its own, and neither ever touches the other's files. An install on a second machine is no different.
 
-**The code names no host.** The data folder is `BRAIN_DATA_DIR`, the plugin's own variable, and otherwise the fixed per-user folder, so a host nobody has heard of works as well as one the code knows. A host's own name for its data folder appears only in that host's manifest: Claude's server config sets `BRAIN_DATA_DIR` to `${CLAUDE_PLUGIN_DATA}`, and the Agent Plugins config sets it to `${PLUGIN_DATA}`, which a host that does not expand it leaves unexpanded, and so unset. Installs whose host names no folder share the per-user folder: safe, as sessions sharing one are, but they are no longer separate machines. The data folder is never inside the Brain folder or the install folder, which is replaced on every update.
+**The code names no host.** The data folder is `PLUGIN_DATA`, which the Agent Plugins format has every host give its servers, and otherwise the fixed per-user folder, so a host nobody has heard of works as well as one the code knows. Claude Code names its folder `CLAUDE_PLUGIN_DATA` instead, so its server config sets `PLUGIN_DATA` from it: a host's own name appears only in its own manifest. Only a host that gives no folder falls back to the per-user folder. The data folder is never inside the Brain folder or the install folder, which is replaced on every update.
 
 **Nothing in the data folder changes.** The lock, the current file, and the index stay as `core-module.md` describes them, so an existing install keeps its index and its active file.
 
@@ -86,7 +86,7 @@ One `plugin/` folder carries two manifests. Each host reads its own and ignores 
 
 Each of these is unconfirmed from documentation and needs an install on a real machine:
 
-- **Cursor and Codex** fill `${PLUGIN_DATA}` into `mcp.json`. Cursor's docs say it does not; without it, installs on that host share the per-user folder.
+- **Cursor and Codex** give their servers `PLUGIN_DATA`, as the Agent Plugins format requires. Cursor's docs say it does not expand `${PLUGIN_DATA}` in `mcp.json`, which the plugin does not rely on, and say nothing of the server's environment.
 - **Cursor and Codex** list a plugin of the Agent Plugins format in their marketplaces with no manifest of their own.
 - **Every host** waits long enough for a first start that builds the environment, and for a tool call that files or checks a large document.
 - **Every host** runs the server where the model's file tools look, so a path the user names is one the server can open.

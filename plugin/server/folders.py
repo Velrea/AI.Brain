@@ -19,8 +19,8 @@ from brain.format import brain_key
 PLUGIN = Path(__file__).resolve().parent.parent
 """The plugin's install folder, replaced on every update."""
 
-DATA_VARIABLE = "BRAIN_DATA_DIR"
-"""The install's data folder, when its host's manifest names one."""
+DATA_VARIABLE = "PLUGIN_DATA"
+"""The install's data folder, as the Agent Plugins format has every host name it."""
 
 SETTINGS = "settings.json"
 """The install's settings, in its plugin data folder."""
@@ -104,7 +104,7 @@ def configure(data: Path, folder: str, *, create: bool = False, environ: Mapping
     if create and not path.exists():
         path.mkdir(parents=True)
     path = existing(path)
-    data_dir(path, {"BRAIN_DATA_DIR": str(data)})
+    data_dir(path, {"PLUGIN_DATA": str(data)})
     _write_settings(Path(data), path)
     return path
 

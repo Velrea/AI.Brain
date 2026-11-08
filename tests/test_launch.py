@@ -72,7 +72,7 @@ def test_a_data_folder_inside_the_brain_folder_is_refused_before_anything_is_bui
     brain = tmp_path / "brain"
     brain.mkdir()
     monkeypatch.setenv("BRAIN_DIR", str(brain))
-    monkeypatch.setenv("BRAIN_DATA_DIR", str(brain / "data"))
+    monkeypatch.setenv("PLUGIN_DATA", str(brain / "data"))
 
     assert main(["launch.py", "prepare"]) == 1
     assert "inside the Brain folder" in capsys.readouterr().err

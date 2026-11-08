@@ -1,6 +1,5 @@
-"""The document skill's file work: filing a document into the Brain folder's
-`documents/`, listing a folder of it, and checking it against what is
-recorded. Standard library only, with the core module beside it in the plugin.
+"""Filing documents into the Brain folder's `documents/`, listing a folder of
+it, and checking it against what is recorded.
 
 A filed document is a file at a path inside `documents/`, with its sha256,
 copied or moved there, and recorded afterwards as an entry of type `document`
@@ -8,36 +7,22 @@ naming both in its details. A path, once filed, keeps its contents: filing the
 same contents there again returns it as it is, and filing others there is
 refused, so a pointer to a document never comes to point at something else.
 Contents a document entry already names are refused wherever they would be
-filed, found through the core module's search, so a document is filed once.
-A file already inside `documents/` is never filed again: the user may edit,
-move, add, or delete files there by hand, and checking finds each such change
-for the entries to record.
-
-Each command prints one JSON object; a failure prints its message to stderr
-and exits 1.
-
-    documents.py store --brain <folder> --data <folder> <file> <path> [--move]
-    documents.py list --brain <folder> [<path>]
-    documents.py check --brain <folder> --data <folder> [<path>]
+filed, found through a search, so a document is filed once. A file already
+inside `documents/` is never filed again: the user may edit, move, add, or
+delete files there by hand, and checking finds each such change for the
+entries to record. A move removes the original only once its copy is in place,
+so at worst a file ends up in the Brain, never lost.
 """
 
-import argparse
 import contextlib
 import hashlib
-import json
 import os
 import re
 import shutil
-import sys
 import uuid
 from pathlib import Path
 
-# The plugin's own folder, so the core module and the server's folders are importable.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from brain.index import IndexUnavailable  # noqa: E402
-from brain.read import CEILING, Reader, TooManyHits  # noqa: E402
-from server.folders import FolderError, data_dir  # noqa: E402
+from .read import CEILING, Reader, TooManyHits
 
 DOCUMENT = "document"
 """The type of the entry that records a filed document."""
@@ -290,42 +275,3 @@ def _count(folder: Path) -> int:
         folders[:] = [name for name in folders if not name.startswith(".")]
         count += sum(1 for name in files if not name.startswith("."))
     return count
-
-
-def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="documents.py")
-    commands = parser.add_subparsers(dest="command", required=True)
-    storing = commands.add_parser("store")
-    storing.add_argument("--brain", type=Path, required=True)
-    storing.add_argument("--data", default="")
-    storing.add_argument("file", type=Path)
-    storing.add_argument("path")
-    storing.add_argument("--move", action="store_true")
-    listing = commands.add_parser("list")
-    listing.add_argument("--brain", type=Path, required=True)
-    listing.add_argument("path", nargs="?", default="")
-    checking = commands.add_parser("check")
-    checking.add_argument("--brain", type=Path, required=True)
-    checking.add_argument("--data", default="")
-    checking.add_argument("path", nargs="?", default="")
-    args = parser.parse_args(argv)
-    try:
-        if args.command == "list":
-            result = Documents(args.brain).browse(args.path)
-        else:
-            # The same plugin data folder, and so the same index, the server reads.
-            data, _ = data_dir(args.brain.resolve(), {"BRAIN_DATA_DIR": args.data})
-            documents = Documents(args.brain, Reader(args.brain, data))
-            if args.command == "store":
-                result = documents.store(args.file, args.path, move=args.move)
-            else:
-                result = documents.check(args.path)
-    except (DocumentError, FolderError, IndexUnavailable, TooManyHits, OSError) as error:
-        print(error, file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import sys
 
@@ -10,7 +11,7 @@ from mcp.client.session import ClientSession
 from conftest import PLUGIN
 from server.serve import build
 
-TOOLS = {"write", "search", "read", "configure", "status"}
+TOOLS = {"write", "search", "read", "list_documents", "store_document", "check_documents", "configure", "status"}
 
 
 @pytest.fixture
@@ -59,6 +60,9 @@ def test_every_tool_is_listed_with_its_rules(server):
     assert tools["read"].annotations.read_only_hint is True
     assert tools["status"].annotations.read_only_hint is True
     assert tools["configure"].annotations.destructive_hint is False
+    assert tools["store_document"].annotations.destructive_hint is True
+    assert tools["list_documents"].annotations.read_only_hint is True
+    assert tools["check_documents"].annotations.read_only_hint is True
 
 
 def test_an_entry_linking_to_an_entity_is_written_found_and_read(server):
@@ -174,7 +178,7 @@ def test_the_server_answers_over_stdio_and_keeps_stdout_for_the_protocol(brain_d
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "server.serve"],
-        env={"PYTHONPATH": str(PLUGIN), "BRAIN_DIR": str(brain_dir), "BRAIN_DATA_DIR": str(data_dir)},
+        env={"PYTHONPATH": str(PLUGIN), "BRAIN_DIR": str(brain_dir), "PLUGIN_DATA": str(data_dir)},
     )
 
     async def run():
@@ -225,7 +229,7 @@ def test_a_configured_folder_that_is_missing_is_reported_and_created_only_when_a
 
 
 def test_a_server_with_no_brain_folder_starts_over_stdio_and_answers(tmp_path, home):
-    env = {"PYTHONPATH": str(PLUGIN), "BRAIN_DATA_DIR": str(tmp_path / "data"), "HOME": str(home), "USERPROFILE": str(home)}
+    env = {"PYTHONPATH": str(PLUGIN), "PLUGIN_DATA": str(tmp_path / "data"), "HOME": str(home), "USERPROFILE": str(home)}
     params = StdioServerParameters(command=sys.executable, args=["-m", "server.serve"], env=env)
 
     async def run():
@@ -235,3 +239,48 @@ def test_a_server_with_no_brain_folder_starts_over_stdio_and_answers(tmp_path, h
 
     result = asyncio.run(run())
     assert result.is_error and "not set up" in result.content[0].text
+
+
+def test_a_document_is_filed_listed_recorded_and_checked_through_the_tools(server, brain_dir, tmp_path):
+    invoice = tmp_path / "scan.pdf"
+    invoice.write_bytes(b"%PDF invoice")
+
+    filed, listed, relative, checked = calls(
+        server,
+        ("store_document", {"file": str(invoice), "path": "car/invoice.pdf", "move": True}),
+        ("list_documents", {}),
+        ("store_document", {"file": "scan.pdf", "path": "car/other.pdf"}),
+        ("check_documents", {}),
+    )
+
+    assert filed == {"path": "car/invoice.pdf", "sha256": hashlib.sha256(b"%PDF invoice").hexdigest()}
+    assert not invoice.exists()
+    assert (brain_dir / "documents" / "car" / "invoice.pdf").read_bytes() == b"%PDF invoice"
+    assert listed == {"folders": [{"name": "car", "documents": 1}], "documents": []}
+    assert relative[0] == "error" and "not an absolute path" in relative[1]
+    assert checked["unrecorded"] == [filed]
+
+    recorded, again, clean = calls(
+        server,
+        ("write", {"type": "document", "version": 1, "slug": "oil-change-invoice", "event_date": "2026-09-14",
+                   "description": "Oil change invoice", "body": "Paid.", "details": filed}),
+        ("store_document", {"file": str(brain_dir / "documents" / "car" / "invoice.pdf"), "path": "car/copy.pdf"}),
+        ("check_documents", {"path": "car"}),
+    )
+    assert again[0] == "error" and "never filed again" in again[1]
+    assert clean == {"changed": [], "moved": [], "missing": [], "unrecorded": []}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Git Bash drives are a Windows form")
+def test_a_file_named_as_git_bash_names_it_is_filed(server, brain_dir, tmp_path):
+    invoice = tmp_path / "scan.pdf"
+    invoice.write_bytes(b"%PDF invoice")
+    drive, rest = invoice.as_posix().split(":", 1)
+
+    [filed] = calls(server, ("store_document", {"file": f"/{drive.lower()}{rest}", "path": "car/invoice.pdf"}))
+    assert filed["path"] == "car/invoice.pdf"
+
+
+def test_filing_waits_for_the_brain_to_be_set_up(data_dir, tmp_path):
+    [refused] = calls(build(data_dir, {}), ("list_documents", {}))
+    assert refused[0] == "error" and "not set up" in refused[1]

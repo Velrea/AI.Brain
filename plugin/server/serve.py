@@ -1,5 +1,6 @@
 """The Brain's MCP server, over stdio: the core module's write, search, and
-read, each as a tool, beside `configure` and `status` for the install itself.
+read, and its filing of documents, each as a tool, beside `configure` and
+`status` for the install itself.
 
 It starts whatever is wrong with the Brain folder, so the user hears what is
 wrong in the conversation instead of finding the tools missing.
@@ -27,12 +28,15 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from brain.documents import Documents
 from brain.format import RecordError
 from brain.index import FileHeld
 from brain.lock import LockTimeout
 from brain.read import Reader
 from brain.write import AppendBlocked, Writer
-from server.folders import PLUGIN, BrainMissing, FolderError, NotConfigured, brain_setting, data_dir, existing
+from server.folders import (
+    PLUGIN, BrainMissing, FolderError, NotConfigured, brain_setting, data_dir, existing, host_path,
+)
 from server.folders import configure as configure_folder
 
 log = logging.getLogger("brain")
@@ -47,6 +51,8 @@ Search by names for the slugs of what you mean before linking to or searching by
 READS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 CONFIGURES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+FILES = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
+"""Filing can remove the original, so a host that asks before a destructive tool asks."""
 
 REQUIREMENTS = PLUGIN / "requirements.in"
 """The packages the server names; `requirements.txt` pins them and all they need."""
@@ -111,25 +117,26 @@ class Folders:
     def load(self) -> None:
         """Finds the Brain folder again, and opens it when nothing is wrong."""
         self.brain, self.brain_why, self.problem = None, "not configured", None
-        self.reader = self.writer = None
+        self.reader = self.writer = self.documents = None
         try:
             self.brain, self.brain_why = brain_setting(self.data, self.environ)
             if self.brain is None:
                 raise NotConfigured("no Brain folder is configured")
             brain = existing(self.brain)
-            data_dir(brain, {"BRAIN_DATA_DIR": str(self.data)})
+            data_dir(brain, {"PLUGIN_DATA": str(self.data)})
         except FolderError as error:
             self.problem = error
             log.warning("%s", error)
             return
         self.reader, self.writer = Reader(brain, self.data), Writer(brain, self.data)
+        self.documents = Documents(brain, self.reader)
         log.info("Brain folder %s (%s)", brain, self.brain_why)
 
-    def ready(self) -> tuple[Reader, Writer]:
-        """The reader and writer, or an error result saying what is wrong and how to put it right."""
+    def ready(self) -> tuple[Reader, Writer, Documents]:
+        """The reader, writer, and documents, or an error result saying what is wrong and how to put it right."""
         if self.problem is not None:
             raise ToolError(guidance(self.problem))
-        return self.reader, self.writer
+        return self.reader, self.writer, self.documents
 
 
 def guidance(problem: FolderError) -> str:
@@ -188,7 +195,7 @@ def build(data: Path, environ: Mapping[str, str] = os.environ, data_why: str = "
         details: the type's own fields.
         source: how the information arrived, in a word.
         """
-        _, writer = folders.ready()
+        _, writer, _ = folders.ready()
         return {"id": writer.write(
             type=type, version=version, entry=entry, slug=slug, event_date=event_date,
             description=description, body=body, links=links, aliases=aliases or [], details=details,
@@ -231,7 +238,7 @@ def build(data: Path, environ: Mapping[str, str] = os.environ, data_why: str = "
         including event-date ranges that each fit; to cover everything on a
         subject, search each of those ranges.
         """
-        reader, _ = folders.ready()
+        reader, _, _ = folders.ready()
         hits = reader.search(
             pattern, slugs=slugs, names=names, types=types, event_date_from=event_date_from,
             event_date_to=event_date_to, recorded_after=recorded_after, details=details,
@@ -253,8 +260,61 @@ def build(data: Path, environ: Mapping[str, str] = os.environ, data_why: str = "
         reads the entry it belongs to. An id not found is left out. Read only
         the ids a search picked out.
         """
-        reader, _ = folders.ready()
+        reader, _, _ = folders.ready()
         return render(reader.read(ids))
+
+    @server.tool(annotations=READS, structured_output=False)
+    @_tool
+    def list_documents(folder: str = "") -> dict:
+        """Lists one folder of the Brain's filed documents and returns {"folders": [{"name",
+        "documents"}], "documents": [...]}: its subfolders, each with how many documents it
+        holds at any depth, and the documents directly in it, in name order.
+
+        folder: a path inside the filed documents, folders joined by /; empty for the top.
+        """
+        _, _, documents = folders.ready()
+        return documents.browse(folder)
+
+    @server.tool(annotations=FILES, structured_output=False)
+    @_tool
+    def store_document(file: str, path: str, move: bool = False) -> dict:
+        """Files the document at `file` into the Brain's documents at `path`, and returns
+        {"path", "sha256"} for its entry's details.
+
+        file: the absolute path of the file to file.
+        path: where it goes inside the filed documents, folders joined by /, which are
+          created as needed. No name in it is empty, . or .., ends in a dot or a space,
+          or holds a backslash or any of <>:"|?*.
+        move: removes the original, only once its copy is in place. An original that
+          cannot be removed fails with the path and sha256 it was filed under.
+        Refuses contents a document entry already names, a path that holds other
+        contents, and a file already in the filed documents, which is checked instead.
+        Filing the same contents at the same path again returns it as it is.
+        """
+        _, _, documents = folders.ready()
+        source = host_path(file)
+        if not source.is_absolute():
+            raise ToolError(f"{file!r} is not an absolute path: give the file's full path")
+        return documents.store(source, path, move=move)
+
+    @server.tool(annotations=READS, structured_output=False)
+    @_tool
+    def check_documents(path: str = "") -> dict:
+        """Reports how the filed documents at `path` differ from their entries, and returns
+        {"changed", "moved", "missing", "unrecorded"}, each in path order:
+        changed, [{"path", "entry", "sha256"}]: contents not the ones its entry names,
+          with their sha256 now.
+        moved, [{"entry", "from", "to"}]: an entry's document gone from its path, with the
+          same contents at a path no entry names.
+        missing, [{"path", "entry"}]: an entry's document gone, its contents nowhere checked.
+        unrecorded, [{"path", "sha256"}]: a document no entry names.
+
+        path: a folder or one document inside the filed documents, folders joined by /;
+          empty for every one. Each document checked is read whole, so check no more than
+          asked.
+        """
+        _, _, documents = folders.ready()
+        return documents.check(path)
 
     @server.tool(annotations=CONFIGURES, structured_output=False)
     @_tool

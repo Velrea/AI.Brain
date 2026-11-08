@@ -1,14 +1,11 @@
 import hashlib
-import json
-import subprocess
-import sys
 
 import pytest
 
+from brain.documents import DocumentError, Documents
 from brain.read import CEILING
-from documents import DocumentError, Documents, main
 
-from conftest import PLUGIN, create
+from conftest import create
 
 
 @pytest.fixture
@@ -137,25 +134,6 @@ def test_a_brain_folder_that_does_not_exist_is_refused(tmp_path):
         Documents(tmp_path / "unmounted")
 
 
-def test_the_script_prints_one_json_object_or_says_what_went_wrong(brain_dir, data_dir, writer, invoice, capsys):
-    brain_dir.mkdir()
-    digest = hashlib.sha256(b"%PDF invoice").hexdigest()
-    store = ["store", "--brain", str(brain_dir), "--data", str(data_dir), str(invoice)]
-
-    assert main([*store, "car/invoice.pdf"]) == 0
-    filed = json.loads(capsys.readouterr().out)
-    assert filed == {"path": "car/invoice.pdf", "sha256": digest}
-    assert main(["list", "--brain", str(brain_dir)]) == 0
-    assert json.loads(capsys.readouterr().out) == {"folders": [{"name": "car", "documents": 1}], "documents": []}
-
-    # Recorded by the entries this machine's server writes, through the same plugin data folder.
-    create(writer, "oil-change-invoice", type="document", details=filed)
-    assert main([*store, "car/copy.pdf", "--move"]) == 1
-    printed = capsys.readouterr()
-    assert printed.out == "" and "already filed" in printed.err
-    assert invoice.exists()
-
-
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -250,30 +228,6 @@ def test_more_entries_on_one_date_than_a_search_returns_cannot_be_checked(checke
 def test_checking_needs_the_entries(documents):
     with pytest.raises(DocumentError, match="needs the recorded entries"):
         documents.check()
-
-
-def test_the_script_checks_through_the_same_index(brain_dir, data_dir, checked, capsys):
-    documents, record = checked
-    record("car/invoice.pdf", b"%PDF invoice")
-    (brain_dir / "documents" / "car" / "invoice.pdf").write_bytes(b"%PDF invoice, paid")
-
-    assert main(["check", "--brain", str(brain_dir), "--data", str(data_dir), "car"]) == 0
-    assert json.loads(capsys.readouterr().out)["changed"][0]["sha256"] == sha(b"%PDF invoice, paid")
-
-
-def test_the_launcher_runs_the_script_on_this_machines_python(brain_dir, invoice):
-    brain_dir.mkdir()
-    script = PLUGIN / "skills" / "document" / "scripts" / "documents.py"
-    if sys.platform == "win32":
-        command = ["cmd", "/c", str(PLUGIN / "scripts" / "brain.cmd")]
-    else:
-        command = ["sh", str(PLUGIN / "scripts" / "brain")]
-
-    done = subprocess.run([*command, "run", str(script), "list", "--brain", str(brain_dir)],
-                          capture_output=True, text=True)
-
-    assert done.returncode == 0, done.stderr
-    assert json.loads(done.stdout) == {"folders": [], "documents": []}
 
 
 def test_browsing_lists_one_folder_with_how_many_documents_each_holds(documents, brain_dir, invoice, tmp_path):

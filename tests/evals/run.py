@@ -1,18 +1,13 @@
 """Runs the eval suite: the cases in `cases.py`, played through a model by
 Claude Code's plugin evals, each run against its own copy of the seeded Brain.
 
-    python tests/evals/run.py [--bash] [claude plugin eval options]
+    python tests/evals/run.py [claude plugin eval options]
 
 Plugin evals read a suite only from inside the plugin under test, and the
 suite lives under `tests/`, so this assembles a copy of the plugin with the
 cases written into its `evals/`, in `tests/evals/.cache/harness/`. Each run
 loads only that plugin and starts its real MCP server, through the plugin's
 own config and launcher. Results go to `tests/evals/results/`.
-
-The cases tagged `bash` file documents through the document skill's script,
-so they need a shell, which an eval run grants only where Claude Code can
-sandbox it: macOS, Linux, and WSL2. They run there, and are left out, saying
-so, where it cannot, as on Windows. `--bash` includes them anyway.
 
 Any other option goes to `claude plugin eval` as it is, such as `--case`,
 `--tag`, `--runs`, `--model`, or `-j`.
@@ -45,15 +40,9 @@ JUDGE = "sonnet"
 
 
 def main(argv: list[str]) -> int:
-    bash = "--bash" in argv or sys.platform != "win32"
-    passed = [arg for arg in argv if arg != "--bash"]
-    chosen = [case for case in cases.CASES if bash or "bash" not in case.tags]
-    if len(chosen) < len(cases.CASES):
-        left_out = ", ".join(case.name for case in cases.CASES if case not in chosen)
-        print(f"Left out, needing a shell an eval run cannot sandbox on Windows: {left_out}."
-              " Run them on macOS, Linux, or WSL2.", file=sys.stderr)
+    passed = argv
     venv = prepare()
-    assemble(chosen, venv)
+    assemble(cases.CASES, venv)
     claude = shutil.which("claude")
     if claude is None:
         print("Claude Code's claude command is not on the PATH.", file=sys.stderr)
@@ -66,7 +55,7 @@ def main(argv: list[str]) -> int:
         claude, "plugin", "eval", str(HARNESS),
         "--scaffold", "--mocks", "off", "--trust-plugin", "--no-publish", "--ablation", "none",
         "--output-dir", str(output), *judge, *passed,
-        "--allow-tools", TOOLS, *(["Bash"] if bash else []),
+        "--allow-tools", TOOLS,
     ]
     return subprocess.run(command).returncode
 
@@ -75,7 +64,7 @@ def prepare() -> Path:
     """The server's environment, built by the plugin's own launcher, which
     rebuilds it only when the pins change."""
     script = PLUGIN / "scripts" / ("brain.cmd" if os.name == "nt" else "brain")
-    subprocess.run([str(script), "prepare"], env=os.environ | {"BRAIN_DATA_DIR": str(DATA)}, check=True)
+    subprocess.run([str(script), "prepare"], env=os.environ | {"PLUGIN_DATA": str(DATA)}, check=True)
     return DATA / "venv"
 
 
