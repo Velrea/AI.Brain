@@ -11,7 +11,7 @@ The Brain installs as a plugin on every agent host that takes one: Claude Code, 
 | The MCP server, the core module, the launcher | Carries over: a stdio server any MCP host starts. |
 | The skills' text | Carries over: every host reads `SKILL.md`. |
 | The SessionStart hook | Goes. It only builds the environment early, which the launcher does anyway before it starts the server, and hosts run hooks differently or ask the user to trust each one. |
-| `userConfig.brain_folder` | Goes. Claude only; the shared format has no user settings. The folder is set in the first conversation instead, on every host. |
+| `userConfig.brain_folder` | Goes. Claude only; the shared format has no user settings. The folder is set in the first conversation instead, on every host, and an existing Claude install's is carried over. |
 | `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PLUGIN_DATA}`, `${user_config.brain_folder}` in the document skill | Go. Claude only: no other host is documented to fill in a skill's text. Filing moves into the server, below, so no skill names a path. |
 | `when_to_use` and `argument-hint` in skill frontmatter | Go. Claude only, and outside the Agent Skills spec, whose reference validator rejects them; what they say moves into `description`. |
 
@@ -31,11 +31,11 @@ The Brain installs as a plugin on every agent host that takes one: Claude Code, 
 
 **A folder that does not exist is never created unasked.** A sync folder that is not mounted must not quietly become a new, empty Brain, as `brain_dir` requires today. The server still starts, and every tool answers that the Brain folder does not exist, naming it, and to ask the user whether to create it. Told yes, the model calls `configure` with `create`, which creates the folder and carries on there. Told no, it stops: it says the Brain cannot be used until the folder exists or another is configured, and does nothing more with it.
 
-**An existing Claude install is asked once.** With `userConfig` gone, its folder no longer reaches the server, so its first session after the change asks for the folder, and the answer is kept from then on.
+**An existing Claude install carries its folder over.** Claude Code keeps the value of `userConfig.brain_folder` in its own `settings.json`, under `pluginConfigs`, keyed by the plugin and its marketplace. As the server starts with no `settings.json` of its own and `CLAUDE_PLUGIN_DATA` set, it reads Claude's `settings.json`, in `CLAUDE_CONFIG_DIR` or else `~/.claude`. Exactly one `brain_folder` under a key for the plugin `brain` is written to the server's `settings.json`, with nothing asked. None, several that differ, or a file it cannot read, and the user is asked. Claude's file is only read, never written: Claude Code rewrites it itself, and once the setting is no longer declared, nothing reads the value left there. The next release drops this step, by when existing installs have updated.
 
 ## Filing moves into the server
 
-The document skill's script needs the Brain folder and the data folder, which only Claude fills into a skill's text. Filing becomes the server's, where both are already known:
+The document skill's script needs the Brain folder and the data folder, and it runs in the model's shell. Only Claude fills a skill's text, and not even Claude can fill the Brain folder once it lives in the server's `settings.json`. A host may also give the model no shell, or one sandboxed from writing outside its project. Filing becomes the server's, where both folders are already known and no shell is needed:
 
 | Tool | Does |
 | --- | --- |
@@ -43,9 +43,11 @@ The document skill's script needs the Brain folder and the data folder, which on
 | `store_document` | files a document, moving the original when asked, and returns its path and sha256 |
 | `check_documents` | how the documents at a path differ from their entries |
 
-- **The code moves to the core module** as `brain/documents.py`, standard library only, from `skills/document/scripts/documents.py`; its tests follow it. The server's tools call it as they call `Writer` and `Reader`.
+- **The code moves to the core module** as `brain/documents.py`, standard library only, from `skills/document/scripts/documents.py`; its tests follow it. The server's tools call it as they call `Writer` and `Reader`, handing it both folders, so it no longer imports `server/folders.py`.
+- **Moving removes only what was filed.** A host can check each shell command before it runs; a tool may be allowed once and never checked again, and a document being filed can carry text telling the model to file others. So `store_document` keeps the script's order, removing the original only once its copy is in place in the Brain, and is marked destructive, for a host that asks before a destructive tool. At worst a file ends up in the Brain, never lost.
+- **Paths are absolute.** The server's working folder is not the model's, so a relative path is refused, with how to give it whole. On Windows, a path as Git Bash writes it, `/d/...`, is read as `D:\...`: a shell converted it for the script, and nothing converts it in a tool call.
 - **The skill keeps the judgment**: where a document belongs, what its entry says, and what to do with what `check_documents` reports.
-- **The rule changes.** Work that touches the Brain's files is the server's; what to record, and how, is the skills'. A skill script can rely on no host filling in its text, so `skills.md` no longer offers one as the way to reach the Brain.
+- **The rule changes.** Work that touches the Brain's files is the server's; what to record, and how, is the skills'. A skill script can rely on no host filling in its text, so `skills.md` no longer offers one as the way to reach the Brain, and the launcher's `run`, which only skill scripts used, goes.
 
 ## Checked at every start
 
@@ -87,14 +89,17 @@ Each of these is unconfirmed from documentation and needs an install on a real m
 - **Cursor** gives its server `PLUGIN_DATA`. Its docs say it does not fill `${PLUGIN_DATA}` into `mcp.json`, which says nothing of the server's environment. If it gives none, two Cursor installs on one machine would share the fallback folder; that is safe, as sessions sharing one are, but they would no longer be separate machines.
 - **Codex** gives its server `PLUGIN_DATA`, as it documents for hooks.
 - **Cursor and Codex** list a plugin of the Agent Plugins format in their marketplaces with no manifest of their own.
-- **Every host** waits long enough for a first start that builds the environment.
+- **Every host** waits long enough for a first start that builds the environment, and for a tool call that files or checks a large document.
+- **Every host** runs the server where the model's file tools look, so a path the user names is one the server can open.
 - **Claude Code** ignores the root `plugin.json` and `mcp.json`.
+- **Claude Code** keeps a saved `brain_folder` in its `settings.json` when an update stops declaring it, at least until the server's first start after the update.
 - **Every host on Windows** runs `brain.cmd` for the command `./scripts/brain`.
 - **Every host** loads a skill whose `description` carries what `when_to_use` said, and picks it as reliably.
 
 ## Order of work
 
-1. `settings.json`, `configure`, and `status`, with tests.
+1. `settings.json`, `configure`, `status`, and carrying an existing Claude install's folder over, with tests.
 2. Filing into the server and the core module, with the document skill rewritten around it.
 3. The manifests, the skills' frontmatter, the marketplaces, the consistency test, removing the hook and `userConfig`, and the docs: `mcp-server.md`, `skills.md`, `core-module.md`, `development.md`, and the README's installing section.
 4. An install on each host, working through the list above.
+5. In the release after, removing the step that carries an existing Claude install's folder over.
