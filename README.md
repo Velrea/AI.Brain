@@ -73,7 +73,7 @@ In Codex, add this repository as a plugin marketplace, then install `brain` from
 codex plugin marketplace add Velrea/AI.Brain
 ```
 
-In Cursor, add this repository as a plugin marketplace, then install `brain` from it.
+Cursor reads the same format, but AI.Brain is untested there.
 
 The first time you use it, it asks for your Brain folder. Choose a folder inside a synced folder, such as Google Drive or Dropbox, and give the same one to every install, on every machine. Your records go in `events/` inside it, and your filed documents in `documents/`.
 
