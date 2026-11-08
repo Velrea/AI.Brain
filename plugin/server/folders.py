@@ -14,6 +14,8 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
+from brain.format import brain_key
+
 PLUGIN = Path(__file__).resolve().parent.parent
 """The plugin's install folder, replaced on every update."""
 
@@ -58,10 +60,10 @@ def data_dir(brain: Path | None, environ: Mapping[str, str] = os.environ) -> tup
 def brain_setting(data: Path, environ: Mapping[str, str] = os.environ, *, carry_over: bool = True) -> tuple[Path | None, str]:
     """The Brain folder this install is set to and where it was set, or None:
     `BRAIN_DIR` when set, then the data folder's settings. With no settings
-    and `carry_over`, the folder Claude Code's own settings keep for this
-    plugin is written to the data folder's settings and returned, so an
-    install from before the folder was kept here keeps it. Whether the
-    folder exists is not checked."""
+    and `carry_over`, an install from before the folder was kept here keeps
+    it: the folder Claude Code's own settings keep for this plugin, when this
+    install has already used it, is written to the data folder's settings and
+    returned. Whether the folder exists is not checked."""
     value = _set(environ.get("BRAIN_DIR"))
     if value is not None:
         return host_path(value), "from BRAIN_DIR"
@@ -74,7 +76,7 @@ def brain_setting(data: Path, environ: Mapping[str, str] = os.environ, *, carry_
         if not isinstance(folder, str) or not Path(folder).is_absolute():
             raise FolderError(f"the settings at {str(settings)!r} name no Brain folder: configure the Brain folder again")
         return Path(folder), f"from {SETTINGS}"
-    claude = _from_claude(environ) if carry_over else None  # Dropped in the next release.
+    claude = _from_claude(Path(data), environ) if carry_over else None  # Dropped in the next release.
     if claude is not None:
         _write_settings(Path(data), claude)
         return claude, "carried over from Claude Code's settings"
@@ -115,11 +117,12 @@ def host_path(value: str) -> Path:
     return Path(value).expanduser()
 
 
-def _from_claude(environ: Mapping[str, str]) -> Path | None:
+def _from_claude(data: Path, environ: Mapping[str, str]) -> Path | None:
     """The one Brain folder Claude Code's own settings keep for this plugin,
-    from when it was a setting Claude Code asked for: None when there is none,
-    several that differ, or settings that cannot be read. Only read, never
-    written."""
+    from when it was a setting Claude Code asked for, that the install with
+    data folder `data` has already used: None when there is none, several,
+    or settings that cannot be read. A fresh install has used none, so it
+    never takes another install's folder. Only read, never written."""
     root = _set(environ.get("CLAUDE_CONFIG_DIR"))
     try:
         settings = (Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"
@@ -135,7 +138,9 @@ def _from_claude(environ: Mapping[str, str]) -> Path | None:
             folder = _set(options.get("brain_folder")) if isinstance(options.get("brain_folder"), str) else None
             if folder is not None and Path(folder).is_absolute():
                 found.add(str(Path(folder)))
-    return Path(found.pop()) if len(found) == 1 else None
+    # The core module names an install's files for a Brain by its key.
+    used = [folder for folder in found if any(data.glob(f"{brain_key(Path(folder))}.*"))]
+    return Path(used[0]) if len(used) == 1 else None
 
 
 def _write_settings(data: Path, folder: Path) -> None:

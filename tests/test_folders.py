@@ -3,6 +3,7 @@ import sys
 
 import pytest
 
+from brain.format import brain_key
 from server.folders import (
     PLUGIN, SETTINGS, BrainMissing, FolderError, brain_setting, configure, data_dir, existing, host_path,
 )
@@ -13,6 +14,13 @@ def claude_settings(folder, configs) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "settings.json").write_text(json.dumps({"theme": "dark", "pluginConfigs": configs}), "utf-8")
     return {"CLAUDE_CONFIG_DIR": str(folder)}
+
+
+def used(data, *brains) -> None:
+    """Leaves in `data` what the core module leaves after using each of `brains`."""
+    data.mkdir(parents=True, exist_ok=True)
+    for brain in brains:
+        (data / f"{brain_key(brain)}.json").write_text("{}", "utf-8")
 
 
 def test_brain_dir_overrides_the_settings(tmp_path):
@@ -91,6 +99,7 @@ def test_settings_that_cannot_be_read_are_reported(tmp_path, text):
 
 def test_a_claude_install_carries_its_folder_over_from_claudes_settings(tmp_path):
     data = tmp_path / "data"
+    used(data, tmp_path / "Brain")
     claude = tmp_path / ".claude"
     environ = claude_settings(claude, {"brain@ai-brain": {"options": {"brain_folder": str(tmp_path / "Brain")}},
                                        "other@ai-brain": {"options": {"brain_folder": str(tmp_path / "Other")}}})
@@ -108,17 +117,34 @@ def test_a_claude_install_carries_its_folder_over_from_claudes_settings(tmp_path
     {"brain@ai-brain": {"options": {"brain_folder": "relative/Brain"}}},
     {"brain@one": {"options": {"brain_folder": "TMP/one"}}, "brain@two": {"options": {"brain_folder": "TMP/two"}}},
 ])
-def test_no_folder_or_several_that_differ_in_claudes_settings_carry_nothing_over(tmp_path, configs):
+def test_no_folder_or_several_used_in_claudes_settings_carry_nothing_over(tmp_path, configs):
+    used(tmp_path / "data", tmp_path / "one", tmp_path / "two")
     configs = json.loads(json.dumps(configs).replace("TMP", tmp_path.as_posix()))
     environ = claude_settings(tmp_path / ".claude", configs)
     assert brain_setting(tmp_path / "data", environ) == (None, "not configured")
     assert not (tmp_path / "data" / SETTINGS).exists()
 
 
-def test_claudes_settings_are_found_in_the_home_folder_whatever_host_started_the_server(tmp_path, home):
-    claude_settings(home / ".claude", {"brain@ai-brain": {"options": {"brain_folder": str(tmp_path)}}})
+def test_a_fresh_install_never_takes_the_folder_another_install_keeps_in_claudes_settings(tmp_path, home):
+    brain = tmp_path / "Brain"
+    claude_settings(home / ".claude", {"brain@ai-brain": {"options": {"brain_folder": str(brain)}}})
+    (tmp_path / "data").mkdir()
+    assert brain_setting(tmp_path / "data", {}) == (None, "not configured")
+    used(tmp_path / "data", tmp_path / "Other")
+    assert brain_setting(tmp_path / "data", {}) == (None, "not configured")
+
+    used(tmp_path / "data", brain)
     assert brain_setting(tmp_path / "data", {}, carry_over=False) == (None, "not configured")
-    assert brain_setting(tmp_path / "data", {})[0] == tmp_path
+    assert brain_setting(tmp_path / "data", {})[0] == brain
+
+
+def test_of_several_folders_in_claudes_settings_the_one_this_install_used_is_carried_over(tmp_path):
+    used(tmp_path / "data", tmp_path / "two")
+    environ = claude_settings(tmp_path / ".claude", {
+        "brain@one": {"options": {"brain_folder": str(tmp_path / "one")}},
+        "brain@two": {"options": {"brain_folder": str(tmp_path / "two")}},
+    })
+    assert brain_setting(tmp_path / "data", environ)[0] == tmp_path / "two"
 
 
 def test_claudes_settings_that_cannot_be_read_carry_nothing_over(tmp_path):
