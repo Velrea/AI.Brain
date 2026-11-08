@@ -51,10 +51,10 @@ The document skill's script needs the Brain folder and the data folder, and it r
 
 ## Checked at every start
 
-With no hook, the server checks everything as it starts: Python 3.11 or later, the environment, the Brain folder and that it exists, and that the data folder is outside the Brain folder and the install folder. It then catches up the index in the background, so the first question is answered from a current index.
+With no hook, the server checks everything as it starts: Python 3.11 or later, the environment, the Brain folder and that it exists, and that the data folder is outside the Brain folder and the install folder. The index catches up on the first read, as on every read: under a second for a Brain of a few thousand entries built from empty, and next to nothing when little is new.
 
 - **A failed check does not stop the server.** Every tool answers with what failed and how to fix it, so the user hears it in the conversation instead of finding the tools missing.
-- **`status`** reports the Brain folder, the data folder, the Python and the pins, and how far the index has caught up. It is read-only.
+- **`status`** reports the Brain folder, the data folder, and the Python and the pins. It is read-only.
 - **The first start is the slow one.** Building the environment takes about 20 seconds while the host waits for the server. A host that stops waiting first costs that one session its tools; the build finishes, and the next session starts in about a second.
 - **Python 3.11 or later stays a requirement.** The launch scripts' message names it when none is found.
 
