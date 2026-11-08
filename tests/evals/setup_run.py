@@ -6,11 +6,11 @@ and gives the run what a configured machine has:
 - its own copy of the seeded Brain, in `brain/`;
 - the files the case hands over, in `inbox/`, and any other file it writes,
   replaces, or removes, the seeded Brain's documents among them;
-- the Brain folder setting, which an eval run otherwise leaves empty, so the
-  server would not start and the skills would name no folder;
+- the install's settings, in the run's plugin data folder, naming that copy
+  as the Brain folder, which a new install would otherwise ask for;
 - the server's Python environment, built once by the launcher and copied
-  into the run's plugin data folder, which the launcher then finds ready
-  instead of spending minutes installing it in every run.
+  into the same folder, which the launcher then finds ready instead of
+  spending minutes installing it in every run.
 
     setup_run.py <case> <venv>
 """
@@ -23,6 +23,7 @@ from pathlib import Path
 
 import cases
 import seed
+from server.folders import SETTINGS
 
 PLUGIN_ID = "brain@inline"
 """How the eval run names a plugin it loads from a folder."""
@@ -42,18 +43,15 @@ def main(case_name: str, venv: Path) -> int:
         else:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_bytes(data)
-    # The run's Claude Code configuration sits beside its home.
+    # The run's Claude Code configuration sits beside its home, with the plugin's data folder in it.
     config = Path(os.environ["HOME"]).parent / "config"
     if not config.is_dir():
         print(f"no Claude Code configuration beside the run's home at {config}: the eval run's layout has"
-              " changed, so the Brain folder setting cannot be given", file=sys.stderr)
+              " changed, so the install's settings cannot be given", file=sys.stderr)
         return 1
-    settings_path = config / "settings.json"
-    settings = json.loads(settings_path.read_text("utf-8")) if settings_path.exists() else {}
-    settings.setdefault("pluginConfigs", {})[PLUGIN_ID] = {"options": {"brain_folder": str(work / "brain")}}
-    settings_path.write_text(json.dumps(settings, indent=2), "utf-8")
     data = config / "plugins" / "data" / PLUGIN_ID.replace("@", "-")
     data.mkdir(parents=True, exist_ok=True)
+    (data / SETTINGS).write_text(json.dumps({"brain_folder": str(work / "brain")}, indent=2), "utf-8")
     shutil.copytree(venv, data / "venv", symlinks=True)
     return 0
 

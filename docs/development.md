@@ -22,7 +22,7 @@ python -m venv .venv
 .venv/Scripts/python -m pytest
 ```
 
-On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request, and every push to `main`, runs the same tests on Windows, Linux, and macOS, on Python 3.11 and 3.14, and a pull request cannot merge until they pass.
+On macOS or Linux the venv's Python is `.venv/bin/python`. Every pull request, and every push to `main`, runs the same tests on Windows, Linux, and macOS, on Python 3.11 and 3.14, and a pull request cannot merge until they pass. Every merge to `main` is a release, so a pull request that changes anything under `plugin/` must also raise the `version` in [`plugin/plugin.json`](../plugin/plugin.json), which [`check_version.py`](../tests/check_version.py) checks; Dependabot's pin bumps are exempt, since it cannot raise it, and ship with the next release that does.
 
 The [evals](evals.md) test the whole plugin played through a model, against a fictional Brain. They cost model calls, so they run on demand rather than on every pull request.
 

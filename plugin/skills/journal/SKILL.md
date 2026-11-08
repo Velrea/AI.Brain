@@ -1,8 +1,6 @@
 ---
 name: journal
-description: "Records what happened as a journal entry, or corrects one."
-when_to_use: "The user asks to journal, record, note, or correct something, or mentions in passing something that has happened or is planned that they would want to recall later."
-argument-hint: "[the event to record]"
+description: "Records what happened as a journal entry, or corrects one. Use when the user asks to journal, record, note, or correct something, or mentions in passing something that has happened or is planned that they would want to recall later."
 ---
 
 Record what happened so a reader months later can follow it.

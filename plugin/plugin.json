@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "brain",
+  "version": "0.1.0",
+  "description": "A journal your agent keeps: records what you tell it, files your documents, and answers questions about them later.",
+  "author": {
+    "name": "Velrea"
+  },
+  "license": "Elastic-2.0",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Brain",
+        "shortDescription": "A journal your agent keeps",
+        "longDescription": "Records what you tell it, files your documents, and answers questions about them later, from what was recorded.",
+        "developerName": "Velrea",
+        "category": "Productivity"
+      }
+    }
+  }
+}

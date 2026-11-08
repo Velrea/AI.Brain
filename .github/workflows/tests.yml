@@ -25,11 +25,26 @@ jobs:
       - run: python -m pip install pytest
       - run: python -m pytest
 
+  # Every merge to main is a release, so a change to the plugin raises its version.
+  # Dependabot cannot, so its pin bumps ship with the next release that does.
+  version:
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python tests/check_version.py "origin/${{ github.base_ref }}"
+
   # The one check the pull request gate requires, so the matrix can change without touching the gate.
   gate:
     name: Tests pass
     if: always()
-    needs: test
+    needs: [test, version]
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ needs.test.result }}" = success
+      - run: test "${{ needs.version.result }}" = success || test "${{ needs.version.result }}" = skipped

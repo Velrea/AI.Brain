@@ -1,8 +1,6 @@
 ---
 name: entity
-description: "Records a subject entries are about, adds a name to one, or merges two that turn out to be one."
-when_to_use: "A person, thing, or topic to record, rename, or give another name; two subjects that turn out to be one; and a request to merge or tidy duplicate subjects."
-argument-hint: "<the subject>"
+description: "Records a subject entries are about, adds a name to one, or merges two that turn out to be one. Use for a person, thing, or topic to record, rename, or give another name; two subjects that turn out to be one; or a request to merge or tidy duplicate subjects."
 ---
 
 An entity is a person, thing, or topic that outlasts one event.

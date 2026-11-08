@@ -1,7 +1,7 @@
 """Writes the stories into a Brain folder, the same bytes every time.
 
-The stories go through the core module's own write path and the document
-skill's own filing, so the seeded Brain is one the plugin could have written:
+The stories go through the core module's own write path and its own
+filing, so the seeded Brain is one the plugin could have written:
 every slug, link, revision, and filed document passes the checks a live
 session's would. Only the clock and the random bits of each id are fixed, so
 two builds are identical, file names included.
@@ -23,10 +23,10 @@ from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 PLUGIN = HERE.parent.parent / "plugin"
-sys.path[:0] = [str(PLUGIN), str(PLUGIN / "skills" / "document" / "scripts"), str(HERE)]
+sys.path[:0] = [str(PLUGIN), str(HERE)]
 
 from brain.write import Writer  # noqa: E402
-from documents import Documents  # noqa: E402
+from brain.documents import Documents  # noqa: E402
 from stories import STORIES, Document, Entity, Journal, Revision, Snapshot  # noqa: E402
 
 BRAIN = HERE / "brain"

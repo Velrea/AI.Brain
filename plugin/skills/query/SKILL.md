@@ -1,8 +1,6 @@
 ---
 name: query
-description: "Answers a question from what the Brain recorded."
-when_to_use: "The user asks about something they may have recorded: what happened, what was said or decided, or how something stands now; or asks to look something up in the Brain."
-argument-hint: "<the question to answer>"
+description: "Answers a question from what the Brain recorded. Use when the user asks about something they may have recorded: what happened, what was said or decided, or how something stands now; or asks to look something up in the Brain."
 ---
 
 Answer only from the record and sources you can check, never from what seems likely.

@@ -1,8 +1,6 @@
 ---
 name: snapshot
-description: "Records a folded answer so it need not be recomputed."
-when_to_use: "The user agrees to keep an answer that took many entries to fold, or asks to snapshot, save, or keep an answer."
-argument-hint: "[the question it answers]"
+description: "Records a folded answer so it need not be recomputed. Use when the user agrees to keep an answer that took many entries to fold, or asks to snapshot, save, or keep an answer."
 ---
 
 Only at the user's word. Build the answer from every matching entry, never from an earlier snapshot.

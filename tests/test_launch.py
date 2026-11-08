@@ -1,5 +1,7 @@
+import os
 import subprocess
 import sys
+import time
 
 from conftest import PLUGIN
 from server.launch import main, prepare, venv_python
@@ -72,8 +74,27 @@ def test_a_data_folder_inside_the_brain_folder_is_refused_before_anything_is_bui
     brain = tmp_path / "brain"
     brain.mkdir()
     monkeypatch.setenv("BRAIN_DIR", str(brain))
-    monkeypatch.setenv("BRAIN_DATA_DIR", str(brain / "data"))
+    monkeypatch.setenv("PLUGIN_DATA", str(brain / "data"))
 
     assert main(["launch.py", "prepare"]) == 1
     assert "inside the Brain folder" in capsys.readouterr().err
     assert not (brain / "data").exists()
+
+
+def test_a_build_goes_on_when_the_launcher_is_killed(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("")
+    data = tmp_path / "data"
+    code = "import sys; from server.launch import prepare; from pathlib import Path; prepare(Path(sys.argv[1]), Path(sys.argv[2]))"
+    launcher = subprocess.Popen([sys.executable, "-c", code, str(data), str(requirements)],
+                                env=os.environ | {"PYTHONPATH": str(PLUGIN)}, stderr=subprocess.PIPE, text=True)
+    assert "preparing" in launcher.stderr.readline()
+
+    launcher.kill()
+    launcher.wait()
+    deadline = time.monotonic() + 120
+    while not (data / "venv" / "requirements.txt").exists() and time.monotonic() < deadline:
+        time.sleep(0.5)
+
+    assert prepare(data, requirements) == venv_python(data / "venv")
+    assert (data / "venv.log").exists()

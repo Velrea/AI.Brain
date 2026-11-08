@@ -3,8 +3,7 @@
     "brain": {
       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/brain",
       "env": {
-        "BRAIN_DIR": "${user_config.brain_folder}",
-        "BRAIN_DATA_DIR": "${CLAUDE_PLUGIN_DATA}"
+        "PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
       }
     }
   }

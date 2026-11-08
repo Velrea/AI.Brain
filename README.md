@@ -55,7 +55,9 @@ When Claude files a document somewhere new, it suggests where it should go and l
 
 ## Install
 
-AI.Brain is a plugin for Claude Code.
+AI.Brain is a plugin for Claude Code, Codex, Cursor, and any other agent that takes plugins in the Agent Plugins format.
+
+In Claude Code:
 
 ```bash
 claude plugin marketplace add Velrea/AI.Brain
@@ -65,7 +67,15 @@ claude plugin marketplace add Velrea/AI.Brain
 claude plugin install brain@ai-brain
 ```
 
-When the plugin is enabled, Claude Code asks for your Brain folder. Choose a folder inside a synced folder, such as Google Drive or Dropbox, and choose the same one on every machine. Your records go in `events/` inside it, and your filed documents in `documents/`.
+In Codex, add this repository as a plugin marketplace, then install `brain` from it:
+
+```bash
+codex plugin marketplace add Velrea/AI.Brain
+```
+
+Cursor reads the same format, but AI.Brain is untested there.
+
+The first time you use it, it asks for your Brain folder. Choose a folder inside a synced folder, such as Google Drive or Dropbox, and give the same one to every install, on every machine. Your records go in `events/` inside it, and your filed documents in `documents/`.
 
 The plugin needs Python 3.11 or later on the machine: `python3` or `python` on macOS and Linux, `python` or `py` on Windows. The first session after installing or updating it downloads what the plugin needs, which takes about 20 seconds and needs a connection.
 

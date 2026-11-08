@@ -70,6 +70,17 @@ def python(code: str, *args: str) -> subprocess.Popen:
     )
 
 
+@pytest.fixture(autouse=True)
+def home(tmp_path_factory, monkeypatch) -> Path:
+    """A home folder of the test's own, so nothing reads the settings of the
+    machine running the tests."""
+    folder = tmp_path_factory.mktemp("home")
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(folder))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    return folder
+
+
 @pytest.fixture
 def brain_dir(tmp_path: Path) -> Path:
     return tmp_path / "brain"
