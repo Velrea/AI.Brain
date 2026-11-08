@@ -17,14 +17,11 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 """The plugin's install folder, replaced on every update."""
 
-DATA_VARIABLES = ("BRAIN_DATA_DIR", "CLAUDE_PLUGIN_DATA", "PLUGIN_DATA", "COPILOT_PLUGIN_DATA")
-"""Where hosts name the plugin's data folder, first set first."""
+DATA_VARIABLE = "BRAIN_DATA_DIR"
+"""The install's data folder, when its host's manifest names one."""
 
 SETTINGS = "settings.json"
 """The install's settings, in its plugin data folder."""
-
-CLAUDE_VARIABLES = ("CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA")
-"""Set when Claude Code started the server."""
 
 
 class FolderError(RuntimeError):
@@ -44,16 +41,14 @@ class BrainMissing(FolderError):
 
 
 def data_dir(brain: Path | None, environ: Mapping[str, str] = os.environ) -> tuple[Path, str]:
-    """The plugin data folder and why it was chosen: the first of
-    `DATA_VARIABLES` set, and otherwise a fixed folder for the user. It is
-    never inside `brain`, when given, or the plugin's install folder."""
-    for name in DATA_VARIABLES:
-        value = _set(environ.get(name))
-        if value is not None:
-            path, why = Path(value).expanduser().resolve(), f"from {name}"
-            break
+    """The plugin data folder and why it was chosen: `DATA_VARIABLE` when set,
+    and otherwise a fixed folder for the user. It is never inside `brain`,
+    when given, or the plugin's install folder."""
+    value = _set(environ.get(DATA_VARIABLE))
+    if value is not None:
+        path, why = Path(value).expanduser().resolve(), f"from {DATA_VARIABLE}"
     else:
-        path, why = _user_folder(environ), f"no host named one in {', '.join(DATA_VARIABLES)}"
+        path, why = _user_folder(environ), f"{DATA_VARIABLE} is not set"
     for outside, name in ((brain, "the Brain folder"), (PLUGIN, "the plugin's install folder")):
         if outside is not None and path.is_relative_to(outside.resolve()):
             raise FolderError(f"the plugin data folder {str(path)!r} ({why}) is inside {name}")
@@ -63,9 +58,10 @@ def data_dir(brain: Path | None, environ: Mapping[str, str] = os.environ) -> tup
 def brain_setting(data: Path, environ: Mapping[str, str] = os.environ, *, carry_over: bool = True) -> tuple[Path | None, str]:
     """The Brain folder this install is set to and where it was set, or None:
     `BRAIN_DIR` when set, then the data folder's settings. With no settings
-    and `carry_over`, a Claude Code install's folder from Claude Code's own
-    settings is written to the data folder's settings and returned. Whether
-    the folder exists is not checked."""
+    and `carry_over`, the folder Claude Code's own settings keep for this
+    plugin is written to the data folder's settings and returned, so an
+    install from before the folder was kept here keeps it. Whether the
+    folder exists is not checked."""
     value = _set(environ.get("BRAIN_DIR"))
     if value is not None:
         return host_path(value), "from BRAIN_DIR"
@@ -78,7 +74,7 @@ def brain_setting(data: Path, environ: Mapping[str, str] = os.environ, *, carry_
         if not isinstance(folder, str) or not Path(folder).is_absolute():
             raise FolderError(f"the settings at {str(settings)!r} name no Brain folder: configure the Brain folder again")
         return Path(folder), f"from {SETTINGS}"
-    claude = _from_claude(environ) if carry_over else None
+    claude = _from_claude(environ) if carry_over else None  # Dropped in the next release.
     if claude is not None:
         _write_settings(Path(data), claude)
         return claude, "carried over from Claude Code's settings"
@@ -120,16 +116,15 @@ def host_path(value: str) -> Path:
 
 
 def _from_claude(environ: Mapping[str, str]) -> Path | None:
-    """The one Brain folder Claude Code's own settings keep for this plugin, when
-    Claude Code started the server: None when there is none, several that
-    differ, or settings that cannot be read. Only read, never written."""
-    if not any(_set(environ.get(name)) for name in CLAUDE_VARIABLES):
-        return None
+    """The one Brain folder Claude Code's own settings keep for this plugin,
+    from when it was a setting Claude Code asked for: None when there is none,
+    several that differ, or settings that cannot be read. Only read, never
+    written."""
     root = _set(environ.get("CLAUDE_CONFIG_DIR"))
-    settings = (Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"
     try:
+        settings = (Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"
         configs = json.loads(settings.read_text("utf-8")).get("pluginConfigs")
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, RuntimeError):
         return None
     if not isinstance(configs, dict):
         return None

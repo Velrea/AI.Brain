@@ -9,10 +9,10 @@ from server.folders import (
 
 
 def claude_settings(folder, configs) -> dict:
-    """An environment as Claude Code starts the server in, with its own settings in `folder`."""
+    """An environment naming Claude Code's settings folder, `folder`, with `configs` its plugins' settings."""
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "settings.json").write_text(json.dumps({"theme": "dark", "pluginConfigs": configs}), "utf-8")
-    return {"CLAUDE_PLUGIN_ROOT": str(PLUGIN), "CLAUDE_CONFIG_DIR": str(folder)}
+    return {"CLAUDE_CONFIG_DIR": str(folder)}
 
 
 def test_brain_dir_overrides_the_settings(tmp_path):
@@ -115,19 +115,16 @@ def test_no_folder_or_several_that_differ_in_claudes_settings_carry_nothing_over
     assert not (tmp_path / "data" / SETTINGS).exists()
 
 
-def test_claudes_settings_are_read_only_when_claude_started_the_server(tmp_path):
-    environ = claude_settings(tmp_path / ".claude", {"brain@ai-brain": {"options": {"brain_folder": str(tmp_path)}}})
-    del environ["CLAUDE_PLUGIN_ROOT"]
-    assert brain_setting(tmp_path / "data", environ) == (None, "not configured")
-    environ["CLAUDE_PLUGIN_DATA"] = str(tmp_path / "data")
-    assert brain_setting(tmp_path / "data", environ, carry_over=False) == (None, "not configured")
-    assert brain_setting(tmp_path / "data", environ)[0] == tmp_path
+def test_claudes_settings_are_found_in_the_home_folder_whatever_host_started_the_server(tmp_path, home):
+    claude_settings(home / ".claude", {"brain@ai-brain": {"options": {"brain_folder": str(tmp_path)}}})
+    assert brain_setting(tmp_path / "data", {}, carry_over=False) == (None, "not configured")
+    assert brain_setting(tmp_path / "data", {})[0] == tmp_path
 
 
 def test_claudes_settings_that_cannot_be_read_carry_nothing_over(tmp_path):
     (tmp_path / ".claude").mkdir()
     (tmp_path / ".claude" / "settings.json").write_text("{broken", "utf-8")
-    environ = {"CLAUDE_PLUGIN_ROOT": str(PLUGIN), "CLAUDE_CONFIG_DIR": str(tmp_path / ".claude")}
+    environ = {"CLAUDE_CONFIG_DIR": str(tmp_path / ".claude")}
     assert brain_setting(tmp_path / "data", environ) == (None, "not configured")
 
 
@@ -138,24 +135,20 @@ def test_a_git_bash_drive_is_read_as_its_windows_drive():
     assert host_path("/data/Brain").drive == ""
 
 
-def test_the_data_folder_is_the_first_variable_set_skipping_unexpanded_ones(tmp_path):
-    environ = {
-        "BRAIN_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
-        "CLAUDE_PLUGIN_DATA": "",
-        "PLUGIN_DATA": str(tmp_path / "plugin data"),
-        "COPILOT_PLUGIN_DATA": str(tmp_path / "copilot"),
-    }
-    assert data_dir(None, environ) == ((tmp_path / "plugin data").resolve(), "from PLUGIN_DATA")
-    environ["BRAIN_DATA_DIR"] = str(tmp_path / "override")
-    assert data_dir(None, environ) == ((tmp_path / "override").resolve(), "from BRAIN_DATA_DIR")
+def test_the_data_folder_is_brain_data_dir(tmp_path):
+    assert data_dir(None, {"BRAIN_DATA_DIR": str(tmp_path / "data")}) == ((tmp_path / "data").resolve(), "from BRAIN_DATA_DIR")
 
 
-def test_with_no_host_folder_the_data_folder_is_the_users_own(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    path, why = data_dir(None, {"LOCALAPPDATA": str(tmp_path / "Local"), "XDG_DATA_HOME": str(tmp_path / "share")})
-    assert path.name in ("AI.Brain", "ai-brain") and path.is_relative_to(tmp_path)
-    assert why.startswith("no host named one")
+@pytest.mark.parametrize("value", ["", "${PLUGIN_DATA}"])
+def test_an_unset_or_unexpanded_brain_data_dir_is_the_users_own_folder(tmp_path, value):
+    path, why = data_dir(None, {"BRAIN_DATA_DIR": value, "LOCALAPPDATA": str(tmp_path), "XDG_DATA_HOME": str(tmp_path)})
+    assert path.name in ("AI.Brain", "ai-brain") and why == "BRAIN_DATA_DIR is not set"
+
+
+def test_with_no_brain_data_dir_the_data_folder_is_the_users_own(home):
+    path, why = data_dir(None, {"LOCALAPPDATA": str(home / "Local"), "XDG_DATA_HOME": str(home / "share")})
+    assert path.name in ("AI.Brain", "ai-brain") and path.is_relative_to(home)
+    assert why == "BRAIN_DATA_DIR is not set"
 
 
 def test_a_data_folder_inside_the_brain_or_the_plugin_is_refused(tmp_path):

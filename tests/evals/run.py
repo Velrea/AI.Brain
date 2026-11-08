@@ -7,7 +7,7 @@ Plugin evals read a suite only from inside the plugin under test, and the
 suite lives under `tests/`, so this assembles a copy of the plugin with the
 cases written into its `evals/`, in `tests/evals/.cache/harness/`. Each run
 loads only that plugin and starts its real MCP server, through the plugin's
-own config, hook, and launcher. Results go to `tests/evals/results/`.
+own config and launcher. Results go to `tests/evals/results/`.
 
 The cases tagged `bash` file documents through the document skill's script,
 so they need a shell, which an eval run grants only where Claude Code can

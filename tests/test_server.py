@@ -224,8 +224,8 @@ def test_a_configured_folder_that_is_missing_is_reported_and_created_only_when_a
     assert not brain_dir.exists()
 
 
-def test_a_server_with_no_brain_folder_starts_over_stdio_and_answers(tmp_path):
-    env = {"PYTHONPATH": str(PLUGIN), "BRAIN_DATA_DIR": str(tmp_path / "data")}
+def test_a_server_with_no_brain_folder_starts_over_stdio_and_answers(tmp_path, home):
+    env = {"PYTHONPATH": str(PLUGIN), "BRAIN_DATA_DIR": str(tmp_path / "data"), "HOME": str(home), "USERPROFILE": str(home)}
     params = StdioServerParameters(command=sys.executable, args=["-m", "server.serve"], env=env)
 
     async def run():

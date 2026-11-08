@@ -38,11 +38,11 @@ flowchart LR
     prepare["Build the server's<br/>environment once,<br/>with the launcher"] --> assemble["Copy the plugin and<br/>write the cases into<br/>its evals/"]
     assemble --> eval["claude plugin eval:<br/>each run a fresh session<br/>with only this plugin"]
     eval --> setup["setup_run.py, per run:<br/>the seeded Brain, the inbox,<br/>the Brain folder setting,<br/>the environment"]
-    setup --> session["The session: the plugin's<br/>hook, launcher, server,<br/>and skills"]
+    setup --> session["The session: the plugin's<br/>launcher, server,<br/>and skills"]
     session --> grade["Graders: skills fired,<br/>tool calls, files,<br/>the answer"]
 ```
 
-- **The harness is a copy of the plugin.** Plugin evals read a suite only from inside the plugin under test, and the tests stay out of `plugin/`, so [`run.py`](../tests/evals/run.py) copies the plugin into `tests/evals/.cache/harness/` and writes the cases into its `evals/`. Nothing in the copy changes: each run starts the real MCP server through the plugin's own config, hook, and launcher.
+- **The harness is a copy of the plugin.** Plugin evals read a suite only from inside the plugin under test, and the tests stay out of `plugin/`, so [`run.py`](../tests/evals/run.py) copies the plugin into `tests/evals/.cache/harness/` and writes the cases into its `evals/`. Nothing in the copy changes: each run starts the real MCP server through the plugin's own config and launcher.
 - **Each run gets what a configured machine has.** An eval run leaves the plugin's settings empty, so the Brain folder would be unset, the server would not start, and the skills would name no folder. [`setup_run.py`](../tests/evals/setup_run.py) runs as each case's scaffold and writes the setting into the run's own configuration, beside a copy of the seeded Brain in the run's folder. It also copies in the server's environment, built once by the launcher, since building it in every run takes minutes; the launcher finds it holding the same pins and starts at once.
 - **Only this plugin loads.** An eval run has its own home and configuration, with none of the user's plugins, settings, memory, or MCP servers.
 - **A case can change the run's folder.** Beside the inbox, a case writes, replaces, or removes files by path once the seeded Brain is copied in, so it can edit or move a filed document by hand before the session starts. A file grader sees only files created during the run, so a file the case put there and expects left alone is checked as no shell command naming it.
