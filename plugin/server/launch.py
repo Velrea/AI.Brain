@@ -26,7 +26,7 @@ PLUGIN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
 from brain.lock import FileLock  # noqa: E402
-from server.folders import FolderError, brain_dir, data_dir  # noqa: E402
+from server.folders import FolderError, brain_setting, data_dir  # noqa: E402
 
 REQUIREMENTS = PLUGIN / "requirements.txt"
 PREPARE_TIMEOUT = 600.0
@@ -88,9 +88,15 @@ def main(argv: list[str]) -> int:
         print(f"Brain: unknown command {command!r}; use prepare, run, or none to serve", file=sys.stderr)
         return 2
     try:
-        # Checked before preparing, so an environment is never built inside the Brain folder.
-        brain = brain_dir() if "BRAIN_DIR" in os.environ else None
-        data, why = data_dir(brain)
+        data, why = data_dir(None)
+        # Checked before preparing, so an environment is never built inside the Brain
+        # folder. Any other trouble with the Brain folder is the server's to report.
+        try:
+            brain, _ = brain_setting(data, carry_over=False)
+        except FolderError:
+            brain = None
+        if brain is not None:
+            data_dir(brain)
         python = prepare(data)
     except (FolderError, RuntimeError, OSError) as error:
         print(f"Brain: {error}", file=sys.stderr)
