@@ -10,6 +10,8 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 **A skill's frontmatter is the Agent Skills fields alone**: its `name`, and a `description` saying what it does and when to use it, which every host reads to choose it. The `description` lists that skill's own triggers, written from the user's side. It never says which other skill handles a neighbouring case.
 
+**Skill bodies and tool descriptions state behaviour precisely, with no examples and no reasons.** Examples and reasons live in `docs/`.
+
 **Each skill teaches the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully.
 
 | Skill | Type | Does |
