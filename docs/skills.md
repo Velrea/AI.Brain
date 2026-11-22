@@ -8,7 +8,7 @@ The skills in [`plugin/skills/`](../plugin/skills/) carry what the tools cannot:
 
 **Work on the Brain's files is the server's; what to record, and how, is the skills'.** A skill names no path, no script, and no host's variable: no host but Claude Code fills in a skill's text, and a host may give the model no shell. Filing a document is so a tool of [the server](mcp-server.md), and the document skill keeps the judgment: where a document belongs, what its entry says, and what to do with what a check reports.
 
-**A skill's frontmatter is the Agent Skills fields alone**: its `name`, and a `description` saying what it does and when to use it, which every host reads to choose it.
+**A skill's frontmatter is the Agent Skills fields alone**: its `name`, and a `description` saying what it does and when to use it, which every host reads to choose it. The `description` lists that skill's own triggers, written from the user's side. It never says which other skill handles a neighbouring case.
 
 **Each skill teaches the tools' use, not only the judgment.** Offered a way to search by subject with no guidance, two of three models ignored it and missed entries; one line of guidance made all three answer fully.
 

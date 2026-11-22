@@ -9,3 +9,7 @@
 - Any change under `plugin/` raises the `version` in `plugin/plugin.json`.
 - Never edit `plugin/requirements.txt` by hand. Change `plugin/requirements.in` and recompile it as `docs/development.md` says.
 - The launcher and the server write nothing to stdout, which is the server's channel to its host; diagnostics go to stderr.
+- Whatever is on `main` is shipped to installs nobody can see. A change to settings, manifests, the data folder, or a format carries an existing install across.
+- The plugin runs on Windows, macOS, and Linux. Never ship a path, command, or script that works on only one.
+- Examples in docs, tests, and commit text are obviously fictional, never realistic health, people, or life details.
+- Plugin text says what was recorded or what happened. It never says "the user's life" and names no use case.
