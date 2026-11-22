@@ -61,6 +61,7 @@ flowchart LR
 
 `write`, `search`, and `read` each call the core module's operation of the same name, `Writer.write`, `Reader.search`, and `Reader.read`, directly, and the three document tools call its `Documents`: `browse`, `store`, and `check`. `configure` and `status` concern the install, not the data. Each tool returns one JSON object, compact, as its text, except `read`. Reads are marked read-only, so a host can allow them without asking.
 
+- **A tool returns one shape or fails.** A result too big raises an error that carries how to narrow the call; no paging, and no shape that depends on size.
 - **Work on the Brain's files is the server's.** Filing touches the Brain folder and the index, which only the server knows, and runs no shell, so it works on a host that fills in nothing in a skill's text or gives the model no shell.
 - **`store_document` is marked destructive**, since it can remove the original, so a host that asks before a destructive tool asks. A document being filed can carry text telling the model to file others, and a tool may be allowed once and never checked again, so the original is removed only once its copy is in place: at worst a file ends up in the Brain, never lost.
 - **A file to file is given by its absolute path.** The server's working folder is not the model's, so a relative path is refused, with how to give it whole.
